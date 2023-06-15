@@ -503,3 +503,372 @@ Solution count 2: 0 2.89
 
 Optimal solution found (tolerance 1.00e-04)
 Best objective 0.000000000000e+00, best bound 0.000000000000e+00, gap 0.0000%
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:10:41 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:10:51 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:20:59 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:21:26 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:23:29 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:25:18 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+Gurobi Optimizer version 10.0.0 build v10.0.0rc2 (linux64)
+
+CPU model: Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz, instruction set [SSE2|AVX|AVX2|AVX512]
+Thread count: 14 physical cores, 28 logical processors, using up to 28 threads
+
+Optimize a model with 14 rows, 49 columns and 38 nonzeros
+Model fingerprint: 0x112486a8
+Model has 1 quadratic objective term
+Model has 15 quadratic constraints
+Model has 9 general constraints
+Variable types: 35 continuous, 14 integer (14 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+04]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [3e+00, 3e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [2e-01, 1e+04]
+  QRHS range       [1e+00, 4e+00]
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:25:37 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+Gurobi Optimizer version 10.0.0 build v10.0.0rc2 (linux64)
+
+CPU model: Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz, instruction set [SSE2|AVX|AVX2|AVX512]
+Thread count: 14 physical cores, 28 logical processors, using up to 28 threads
+
+Optimize a model with 14 rows, 49 columns and 38 nonzeros
+Model fingerprint: 0x112486a8
+Model has 1 quadratic objective term
+Model has 15 quadratic constraints
+Model has 9 general constraints
+Variable types: 35 continuous, 14 integer (14 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+04]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [3e+00, 3e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [2e-01, 1e+04]
+  QRHS range       [1e+00, 4e+00]
+Presolve added 22 rows and 1899 columns
+Presolve time: 0.01s
+Presolved: 75 rows, 1958 columns, 3975 nonzeros
+Presolved model has 9 SOS constraint(s)
+Presolved model has 1 quadratic objective terms
+Presolved model has 9 bilinear constraint(s)
+Variable types: 1953 continuous, 5 integer (5 binary)
+
+Root relaxation: objective 0.000000e+00, 33 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00000    0    1          -    0.00000      -     -    0s
+H    0     0                       2.8900000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+H    0     0                       0.0000000    0.00000  0.00%     -    0s
+
+Cutting planes:
+  MIR: 1
+
+Explored 1 nodes (58 simplex iterations) in 0.11 seconds (0.04 work units)
+Thread count was 28 (of 28 available processors)
+
+Solution count 2: 0 2.89 
+
+Optimal solution found (tolerance 1.00e-04)
+Warning: max constraint violation (1.6794e+01) exceeds tolerance
+Warning: max general constraint violation (1.6794e+01) exceeds tolerance
+  Piecewise linearization of function constraints often causes big violation.
+  Try to adjust the settings of the related parameters, such as FuncPieces.
+Best objective 0.000000000000e+00, best bound 0.000000000000e+00, gap 0.0000%
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:27:14 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:27:21 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+Gurobi Optimizer version 10.0.0 build v10.0.0rc2 (linux64)
+
+CPU model: Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz, instruction set [SSE2|AVX|AVX2|AVX512]
+Thread count: 14 physical cores, 28 logical processors, using up to 28 threads
+
+Optimize a model with 14 rows, 58 columns and 38 nonzeros
+Model fingerprint: 0x1ce185b9
+Model has 1 quadratic objective term
+Model has 24 quadratic constraints
+Model has 9 general constraints
+Variable types: 44 continuous, 14 integer (14 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+04]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [3e+00, 3e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [2e-01, 1e+04]
+  QRHS range       [1e+00, 4e+00]
+Presolve added 22 rows and 1896 columns
+Presolve time: 0.01s
+Presolved: 96 rows, 1964 columns, 4014 nonzeros
+Presolved model has 9 SOS constraint(s)
+Presolved model has 1 quadratic objective terms
+Presolved model has 15 bilinear constraint(s)
+Variable types: 1959 continuous, 5 integer (5 binary)
+
+Root relaxation: objective 0.000000e+00, 33 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00000    0    1          -    0.00000      -     -    0s
+H    0     0                       2.8900000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+H    0     2                       0.0000000    0.00000  0.00%     -    0s
+     0     2    0.00000    0    1    0.00000    0.00000  0.00%     -    0s
+
+Cutting planes:
+  MIR: 1
+
+Explored 1 nodes (58 simplex iterations) in 0.20 seconds (0.08 work units)
+Thread count was 28 (of 28 available processors)
+
+Solution count 2: 0 2.89 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 0.000000000000e+00, best bound 0.000000000000e+00, gap 0.0000%
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:28:08 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:28:34 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:28:43 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:28:52 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:29:09 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 2
+Set parameter MIQCPMethod to value 1
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:36:38 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+Gurobi Optimizer version 10.0.0 build v10.0.0rc2 (linux64)
+
+CPU model: Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz, instruction set [SSE2|AVX|AVX2|AVX512]
+Thread count: 14 physical cores, 28 logical processors, using up to 28 threads
+
+Optimize a model with 16 rows, 33 columns and 41 nonzeros
+Model fingerprint: 0x4ada6c2c
+Model has 1 quadratic objective term
+Model has 15 quadratic constraints
+Variable types: 19 continuous, 14 integer (14 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+04]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [3e+00, 3e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [2e-01, 1e+04]
+  QRHS range       [1e+00, 4e+00]
+Presolve removed 0 rows and 4 columns
+Presolve time: 0.00s
+Presolved: 37 rows, 56 columns, 98 nonzeros
+Presolved model has 18 SOS constraint(s)
+Presolved model has 1 quadratic objective terms
+Variable types: 33 continuous, 23 integer (23 binary)
+Found heuristic solution: objective 2.8900000
+
+Root relaxation: objective 0.000000e+00, 35 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+H    0     0                       0.0000000    0.00000  0.00%     -    0s
+
+Cutting planes:
+  MIR: 1
+
+Explored 1 nodes (40 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 28 (of 28 available processors)
+
+Solution count 2: 0 2.89 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 0.000000000000e+00, best bound 0.000000000000e+00, gap 0.0000%
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:47:02 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+Gurobi Optimizer version 10.0.0 build v10.0.0rc2 (linux64)
+
+CPU model: Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz, instruction set [SSE2|AVX|AVX2|AVX512]
+Thread count: 14 physical cores, 28 logical processors, using up to 28 threads
+
+Optimize a model with 46 rows, 73 columns and 121 nonzeros
+Model fingerprint: 0x2d129933
+Model has 1 quadratic objective term
+Model has 15 quadratic constraints
+Variable types: 49 continuous, 24 integer (24 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+03]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [3e+00, 3e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [2e-01, 1e+03]
+  QRHS range       [1e+00, 4e+00]
+Presolve removed 0 rows and 12 columns
+Presolve time: 0.00s
+Presolved: 67 rows, 88 columns, 178 nonzeros
+Presolved model has 18 SOS constraint(s)
+Presolved model has 1 quadratic objective terms
+Variable types: 55 continuous, 33 integer (33 binary)
+Found heuristic solution: objective 2.8900000
+
+Root relaxation: objective 0.000000e+00, 55 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+H    0     0                       0.0000000    0.00000  0.00%     -    0s
+
+Cutting planes:
+  MIR: 2
+
+Explored 1 nodes (62 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 28 (of 28 available processors)
+
+Solution count 2: 0 2.89 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 0.000000000000e+00, best bound 0.000000000000e+00, gap 0.0000%
+
+Gurobi 10.0.0 (linux64) logging started Thu Jun 15 11:48:10 2023
+
+Set parameter LogFile to value "./log.txt"
+Set parameter NonConvex to value 0
+Set parameter MIQCPMethod to value 1
+Gurobi Optimizer version 10.0.0 build v10.0.0rc2 (linux64)
+
+CPU model: Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz, instruction set [SSE2|AVX|AVX2|AVX512]
+Thread count: 14 physical cores, 28 logical processors, using up to 28 threads
+
+Optimize a model with 46 rows, 73 columns and 121 nonzeros
+Model fingerprint: 0x2d129933
+Model has 1 quadratic objective term
+Model has 15 quadratic constraints
+Variable types: 49 continuous, 24 integer (24 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+03]
+  QMatrix range    [1e+00, 1e+00]
+  QLMatrix range   [1e+00, 1e+00]
+  Objective range  [3e+00, 3e+00]
+  QObjective range [2e+00, 2e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [2e-01, 1e+03]
+  QRHS range       [1e+00, 4e+00]
+Presolve removed 0 rows and 12 columns
+Presolve time: 0.00s
+Presolved: 67 rows, 88 columns, 178 nonzeros
+Presolved model has 18 SOS constraint(s)
+Presolved model has 1 quadratic objective terms
+Variable types: 55 continuous, 33 integer (33 binary)
+Found heuristic solution: objective 2.8900000
+
+Root relaxation: objective 0.000000e+00, 55 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+     0     0    0.00000    0    1    2.89000    0.00000   100%     -    0s
+H    0     0                       0.0000000    0.00000  0.00%     -    0s
+
+Cutting planes:
+  MIR: 2
+
+Explored 1 nodes (62 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 28 (of 28 available processors)
+
+Solution count 2: 0 2.89 
+
+Optimal solution found (tolerance 1.00e-04)
+Best objective 0.000000000000e+00, best bound 0.000000000000e+00, gap 0.0000%
