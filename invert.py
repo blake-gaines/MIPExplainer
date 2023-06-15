@@ -15,6 +15,10 @@ def add_gcn_constraint(model, A, X, W, b, name=None):
     model.addConstr(ts==A @ X @ W + b)
     return ts
 
+def add_self_loops(model, A):
+    for i in range(A.shape[0]):
+        model.addConstr(A[i][i] == 1)
+
 def add_relu_constraint(model, X): # BUG: Not working properly with GCN
     ts = model.addMVar(X.shape, lb=0, ub=float("inf"))
     ss = model.addMVar(X.shape, lb=0, ub=float("inf"))
@@ -24,22 +28,17 @@ def add_relu_constraint(model, X): # BUG: Not working properly with GCN
     model.addConstr(ss <= M*(1-zs))
     return ts
 
-# def add_sage_constraint(model, A, X, W1, W2, b, W3=None, name=None):
-#     ts = model.addMVar((1, W1.shape[1]), lb=-float("inf"), ub=float("inf"), name=f"{name}_t" if name else None)
+def add_sage_constraint(model, A, X, W1, W2, b, W3=None, name=None):
+    feature_averages = model.addMVar((W2.shape[0], A.shape[0]))
+    model.addConstr(gp.quicksum(A@X)==gp.quicksum((feature_averages@A).T)) # TODO: Something like this
+    ts = model.addMVar((1, W1.shape[1]), lb=-float("inf"), ub=float("inf"), name=f"{name}_t" if name else None)
 
-#     model.addConstr(ts == W1@X+W2@)
+    model.addConstr(ts == W1@X+W2@feature_averages)
 
-# def add_relu_constraint(model, X):
-#     activations = model.addMVar(X.shape)
-#     print("AH", X.shape)
-#     for index in product(range):
-#             model.addGenConstrMax(activations[i][j], [X[i][j].tolist()], constant=0)
-#     return activations
-
-def global_add_pool(model, A, X, name="pool"):
+def global_add_pool(X, name="pool"):
     return gp.quicksum(X)
 
-def global_mean_pool(model, A, X, name="pool"):
+def global_mean_pool(X, name="pool"):
     return gp.quicksum(X)/X.shape[0]
 
 W1 = np.array([[1, 1, 1, 1, 1]])
