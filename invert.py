@@ -29,8 +29,8 @@ def add_sage_constraint(model, A, X, W1, W2, b, W3=None, name=None):
     feature_averages = model.addMVar((W2.shape[0], A.shape[0]))
     model.addConstr(gp.quicksum(A@X)==gp.quicksum((feature_averages@A).T)) # TODO: Something like this
     ts = model.addMVar((1, W1.shape[1]), lb=-float("inf"), ub=float("inf"), name=f"{name}_t" if name else None)
-
     model.addConstr(ts == W1@X+W2@feature_averages)
+    return ts
 
 def global_add_pool(X, name="pool"):
     return gp.quicksum(X)
