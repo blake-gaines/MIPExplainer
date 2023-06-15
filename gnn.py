@@ -9,7 +9,7 @@ import networkx as nx
 
 from torch.nn import Linear
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, SAGEConv
 # from torch_geometric.nn.dense import DenseGCNConv
 from torch_geometric.nn import global_mean_pool
 
@@ -20,17 +20,23 @@ import torch
 from tqdm import tqdm
 from torch_geometric.utils import to_networkx
 import networkx as nx
-from gnn import GCN, train, test
 import os
 
 
-class GCN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(GCN, self).__init__()
+class GNN(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, conv_type="sage"):
+        super(GNN, self).__init__()
+        self.conv_type = conv_type
+        if conv_type == "gcn":
+            conv = GCNConv
+        elif conv_type == "sage":
+            conv = SAGEConv
+        else:
+            raise NotImplementedError
         torch.manual_seed(12345)
-        self.conv1 = GCNConv(in_channels, 32)
-        self.conv2 = GCNConv(32, 48)
-        self.conv3 = GCNConv(48, 64)
+        self.conv1 = conv(in_channels, 32)
+        self.conv2 = conv(32, 48)
+        self.conv3 = conv(48, 64)
         self.lin1 = Linear(64, 32)
         self.lin2 = Linear(32, 32)
         self.lin3 = Linear(32, out_channels)
@@ -51,11 +57,18 @@ class GCN(torch.nn.Module):
         if edge_weight is None: edge_weight = torch.ones(edge_index.shape[1])
         
         # 1. Obtain node embeddings 
-        x = self.conv1(x, edge_index, edge_weight)
-        x = x.relu()
-        x = self.conv2(x, edge_index, edge_weight)
-        x = x.relu()
-        x = self.conv3(x, edge_index, edge_weight)
+        if self.conv_type == "gcn":
+            x = self.conv1(x, edge_index, edge_weight)
+            x = x.relu()
+            x = self.conv2(x, edge_index, edge_weight)
+            x = x.relu()
+            x = self.conv3(x, edge_index, edge_weight)
+        elif self.conv_type == "sage":
+            x = self.conv1(x, edge_index)
+            x = x.relu()
+            x = self.conv2(x, edge_index)
+            x = x.relu()
+            x = self.conv3(x, edge_index)
 
         # 2. Readout layer
         x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
@@ -89,76 +102,72 @@ def test(model, loader):
          correct += int((pred == data.y).sum())  # Check against ground-truth labels.
      return correct / len(loader.dataset)  # Derive ratio of correct predictions.
 
-if not os.path.isdir("data"): os.mkdir("data")
-if not os.path.isdir("models"): os.mkdir("models")
+if __name__ == "__main__":
+    if not os.path.isdir("data"): os.mkdir("data")
+    if not os.path.isdir("models"): os.mkdir("models")
 
-epochs = 1000
-num_inits = 5
-num_explanations = 3
+    epochs = 1000
+    num_inits = 5
+    num_explanations = 3
+    conv_type = "sage"
 
-load_model = True
-model_path = "models/MUTAG_model.pth"
+    load_model = False
+    model_path = "models/MUTAG_model.pth"
 
-log_run = False
+    log_run = False
 
-# dataset = ExplainerDataset(
-#     graph_generator=BAGraph(num_nodes=300, num_edges=5),
-#     motif_generator='house',
-#     num_motifs=80,
-# )
+    dataset = TUDataset(root='data/TUDataset', name='MUTAG')
+    atom_indices = {
+        0: "C",
+        1: "N",
+        2: "O",
+        3: "F",
+        4: "I",
+        5: "Cl",
+        6: "Br",
+    }
 
-dataset = TUDataset(root='data/TUDataset', name='MUTAG')
-atom_indices = {
-    0: "C",
-    1: "N",
-    2: "O",
-    3: "F",
-    4: "I",
-    5: "Cl",
-    6: "Br",
-}
+    edge_indices = {
+        0: "aromatic",
+        1: "single",
+        2: "double",
+        3: "triple",
+    }
 
-edge_indices = {
-    0: "aromatic",
-    1: "single",
-    2: "double",
-    3: "triple",
-}
-
-print()
-print(f'Dataset: {dataset}:')
-print('====================')
-print(f'Number of graphs: {len(dataset)}')
-print(f'Number of features: {dataset.num_features}')
-print(f'Number of classes: {dataset.num_classes}')
+    print()
+    print(f'Dataset: {dataset}:')
+    print('====================')
+    print(f'Number of graphs: {len(dataset)}')
+    print(f'Number of features: {dataset.num_features}')
+    print(f'Number of classes: {dataset.num_classes}')
 
 
-torch.manual_seed(12345)
-dataset = dataset.shuffle()
+    torch.manual_seed(12345)
+    dataset = dataset.shuffle()
 
-train_dataset = dataset[:150]
-test_dataset = dataset[150:]
-print(f'Number of training graphs: {len(train_dataset)}')
-print(f'Number of test graphs: {len(test_dataset)}')
-print()
+    train_dataset = dataset[:150]
+    test_dataset = dataset[150:]
+    print(f'Number of training graphs: {len(train_dataset)}')
+    print(f'Number of test graphs: {len(test_dataset)}')
+    print()
 
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
-if not load_model:
-    model = GCN(in_channels=dataset.num_node_features, out_channels=dataset.num_classes)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    criterion = torch.nn.CrossEntropyLoss()
-    print(model)
-    pbar = tqdm(range(1,epochs))
-    for epoch in pbar:
-        train(model, train_loader, optimizer, criterion)
-        train_acc = test(model, train_loader)
+    if not load_model:
+        model = GNN(in_channels=dataset.num_node_features, out_channels=dataset.num_classes, conv_type=conv_type)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        criterion = torch.nn.CrossEntropyLoss()
+        print(model)
+        pbar = tqdm(range(1,epochs))
+        for epoch in pbar:
+            train(model, train_loader, optimizer, criterion)
+            train_acc = test(model, train_loader)
+            test_acc = test(model, test_loader)
+            pbar.set_postfix_str(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
+
+        torch.save(model, model_path)
+    else:
+        model = torch.load(model_path)
         test_acc = test(model, test_loader)
-        pbar.set_postfix_str(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
-
-    torch.save(model, model_path)
-else:
-    model = torch.load(model_path)
-    test_acc = test(model, test_loader)
-    print(f"Test Accuracy: {test_acc:.4f}")
+        print(f"Test Accuracy: {test_acc:.4f}")
