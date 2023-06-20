@@ -46,6 +46,23 @@ class GNN(torch.nn.Module):
         embedding = self.embed(x, edge_index, batch, edge_weight)
         output =  self.classify(embedding)
         return embedding, output
+    
+    def get_all_layer_outputs(self, data):
+        x, edge_index, edge_weight, batch = data.x, data.edge_index, data.edge_weight, data.batch
+        outputs = []
+        outputs.append(self.conv1(x, edge_index))
+        outputs.append(outputs[-1].relu())
+        outputs.append(self.conv2(outputs[-1], edge_index))
+        outputs.append(outputs[-1].relu())
+        outputs.append(self.conv3(outputs[-1], edge_index))
+        outputs.append(global_mean_pool(outputs[-1], batch))
+        # TODO: Add ReLU
+        outputs.append(self.lin1(outputs[-1]))
+        outputs.append(outputs[-1].relu())
+        outputs.append(self.lin2(outputs[-1]))
+        outputs.append(outputs[-1].relu())
+        outputs.append(self.lin3(outputs[-1]))
+        return outputs 
 
     def forward(self, x, edge_index, batch, edge_weight=None):
         if edge_weight is None: edge_weight = torch.ones(edge_index.shape[1])
@@ -78,7 +95,9 @@ class GNN(torch.nn.Module):
         # 3. Apply a final classifier
         # x = F.dropout(x, p=0.5, training=self.training)
         x = self.lin1(x)
+        x = x.relu()
         x = self.lin2(x)
+        x = x.relu()
         x = self.lin3(x)
         return x
     

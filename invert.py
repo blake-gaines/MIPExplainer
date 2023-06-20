@@ -3,46 +3,58 @@ from gurobipy import GRB
 import numpy as np
 from itertools import product
 
-M = 1000
-big_number = 1000
+M = 100
+big_number = float("inf")
 
 def add_fc_constraint(model, X, W, b, name=None):
     ts = model.addMVar((W.shape[0],), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
-    print(W.shape, X.shape, b.shape, (W@X).shape, (X@W.T).shape)
-    model.addConstr(ts==X@W.T + b)
+    model.addConstr(ts==X@W.T + b, name=f"{name}_output_constraint" if name else None)
     return ts
 
 def add_gcn_constraint(model, A, X, W, b, name=None): # Unnormalized Adjacency Matrix
     ts = model.addMVar((A.shape[0], W.shape[1]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
-    model.addConstr(ts == A @ X @ W + b)
+    model.addConstr(ts == A @ X @ W + b, name=f"{name}_output_constraint" if name else None)
     return ts
 
 def add_self_loops(model, A):
     for i in range(A.shape[0]):
         model.addConstr(A[i][i] == 1)
 
-def add_relu_constraint(model, X):
-    activations = model.addMVar(X.shape)
-    for index in product(*[range(r) for r in X.shape]):
-        model.addGenConstrMax(activations[index], [X[index].tolist()], constant=0)
-    return activations
+# def add_relu_constraint(model, X, name=None):
+#     activations = model.addMVar(X.shape, name=name)
+#     for index in product(*[range(r) for r in X.shape]):
+#         model.addGenConstrMax(activations[index], [X[index].tolist()], constant=0, name=f"{name}_relu_constraint_{index}".replace(" ","") if name else None)
+#     return activations
 
-def add_sage_constraint(model, A, X, W1, W2, b2=None, W3=None, b3=None, project=False, name=None): #lin_r has W1, lin_l has W2
-    feature_averages = model.addMVar((A.shape[0], X.shape[1]))
-    model.addConstr(gp.quicksum(A@X)==gp.quicksum((A@feature_averages))) # TODO: Something like this
-    ts = model.addMVar((X.shape[0], W1.shape[0]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
-    model.addConstr(ts == (X@W1.T) + (feature_averages@W2.T) + np.expand_dims(b2, 0)) 
-    # model.addConstr(ts == (X@W1.T) + (feature_averages@W2.T)) 
+def add_relu_constraint(model, X, name=None):
+    ts = model.addMVar(X.shape, lb=0, ub=big_number)
+    ss = model.addMVar(X.shape, lb=0, ub=big_number)
+    zs = model.addMVar(X.shape, vtype=GRB.BINARY)
+    model.addConstr(ts - ss == X, name=f"{name}_constraint_1" if name else None)
+    model.addConstr(ts <= M*zs, name=f"{name}_constraint_2" if name else None)
+    model.addConstr(ss <= M*(1-zs), name=f"{name}_constraint_3" if name else None)
     return ts
 
-def global_add_pool(X, name="pool"):
-    return gp.quicksum(X)
+def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None, lin_weight=None, lin_bias=None, project=False, name=None): #lin_r_weight has lin_r_weight, lin_l_weight has lin_l_weight
+    if project:
+        raise NotImplementedError
+        X = add_fc_constraint(model, X, lin_weight, lin_bias)
+        X = add_relu_constraint(model, X)
+    feature_averages = model.addMVar((A.shape[0], X.shape[1]))
+    model.addConstr(gp.quicksum(A@X)==gp.quicksum((A@feature_averages)), name=f"{name}_averages_constraint" if name else None) # TODO: Something like this
+    ts = model.addMVar((X.shape[0], lin_r_weight.shape[0]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
+    model.addConstr(ts == (X@lin_r_weight.T) + (feature_averages@lin_l_weight.T) + np.expand_dims(lin_l_bias, 0), name=f"{name}_output_constraint" if name else None) 
+    # model.addConstr(ts == (X@lin_r_weight.T) + (feature_averages@lin_l_weight.T)) 
+    return ts
 
-# def global_mean_pool(X, name="pool"):
-#     return gp.quicksum(X)/X.shape[0]
-def global_mean_pool(model, X, name="pool"):
-    averages = model.addMVar((X.shape[1],))
-    model.addConstr(averages == gp.quicksum(X)/X.shape[0])
+def global_add_pool(model, X, name=None):
+    sums = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
+    model.addConstr(sums == gp.quicksum(X), name=f"{name}_constraint" if name else None)
+    return sums
+
+def global_mean_pool(model, X, name=None):
+    averages = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
+    model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages
 
 if __name__ == "__main__":
