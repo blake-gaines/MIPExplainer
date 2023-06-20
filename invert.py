@@ -4,15 +4,17 @@ import numpy as np
 from itertools import product
 
 M = 1000
+big_number = 1000
 
 def add_fc_constraint(model, X, W, b, name=None):
-    ts = model.addMVar((1, W.shape[1]), lb=-float("inf"), ub=float("inf"), name=f"{name}_t" if name else None)
-    model.addConstr(ts==X @ W + b)
+    ts = model.addMVar((W.shape[0],), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
+    print(W.shape, X.shape, b.shape, (W@X).shape, (X@W.T).shape)
+    model.addConstr(ts==X@W.T + b)
     return ts
 
 def add_gcn_constraint(model, A, X, W, b, name=None): # Unnormalized Adjacency Matrix
-    ts = model.addMVar((A.shape[0], W.shape[1]), lb=-float("inf"), ub=float("inf"), name=f"{name}_t" if name else None)
-    model.addConstr(ts==A @ X @ W + b)
+    ts = model.addMVar((A.shape[0], W.shape[1]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
+    model.addConstr(ts == A @ X @ W + b)
     return ts
 
 def add_self_loops(model, A):
@@ -25,18 +27,23 @@ def add_relu_constraint(model, X):
         model.addGenConstrMax(activations[index], [X[index].tolist()], constant=0)
     return activations
 
-def add_sage_constraint(model, A, X, W1, W2, b, W3=None, name=None):
-    feature_averages = model.addMVar((W2.shape[0], A.shape[0]))
-    model.addConstr(gp.quicksum(A@X)==gp.quicksum((feature_averages@A).T)) # TODO: Something like this
-    ts = model.addMVar((1, W1.shape[1]), lb=-float("inf"), ub=float("inf"), name=f"{name}_t" if name else None)
-    model.addConstr(ts == W1@X+W2@feature_averages)
+def add_sage_constraint(model, A, X, W1, W2, b2=None, W3=None, b3=None, project=False, name=None): #lin_r has W1, lin_l has W2
+    feature_averages = model.addMVar((A.shape[0], X.shape[1]))
+    model.addConstr(gp.quicksum(A@X)==gp.quicksum((A@feature_averages))) # TODO: Something like this
+    ts = model.addMVar((X.shape[0], W1.shape[0]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
+    model.addConstr(ts == (X@W1.T) + (feature_averages@W2.T) + np.expand_dims(b2, 0)) 
+    # model.addConstr(ts == (X@W1.T) + (feature_averages@W2.T)) 
     return ts
 
 def global_add_pool(X, name="pool"):
     return gp.quicksum(X)
 
-def global_mean_pool(X, name="pool"):
-    return gp.quicksum(X)/X.shape[0]
+# def global_mean_pool(X, name="pool"):
+#     return gp.quicksum(X)/X.shape[0]
+def global_mean_pool(model, X, name="pool"):
+    averages = model.addMVar((X.shape[1],))
+    model.addConstr(averages == gp.quicksum(X)/X.shape[0])
+    return averages
 
 if __name__ == "__main__":
     W1 = np.array([[1, 1, 1, 1, 1]])
@@ -46,7 +53,7 @@ if __name__ == "__main__":
     target = 1.5
 
     m = gp.Model("MLP Inverse")
-    x = m.addMVar((1, 1), lb=-float("inf"), ub=float("inf"), name="x")
+    x = m.addMVar((1, 1), lb=-big_number, ub=big_number, name="x")
 
     hidden_activations = add_fc_constraint(m, x, W1, b1, "hidden")
     hidden_activations = add_relu_constraint(m, hidden_activations)
@@ -66,7 +73,7 @@ if __name__ == "__main__":
     m.params.NonConvex = 0
     m.params.MIQCPMethod = 1
     A = m.addMVar((3, 3), vtype=GRB.BINARY, name="x")
-    X = m.addMVar((3, 1), lb=-float("inf"), ub=float("inf"), name="x")
+    X = m.addMVar((3, 1), lb=-big_number, ub=big_number, name="x")
 
     node_embeddings = add_gcn_constraint(m, A, X, W1, b1)
     node_embeddings = add_relu_constraint(m, node_embeddings)
