@@ -2,3 +2,4 @@
 *.mps
 data/
 models/
+*.npy
