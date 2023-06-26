@@ -3,7 +3,7 @@ from gurobipy import GRB
 import numpy as np
 from itertools import product
 
-M = 100
+M = 1000
 big_number = float("inf")
 
 def add_fc_constraint(model, X, W, b, name=None):
@@ -19,6 +19,11 @@ def add_gcn_constraint(model, A, X, W, b, name=None): # Unnormalized Adjacency M
 def add_self_loops(model, A):
     for i in range(A.shape[0]):
         model.addConstr(A[i][i] == 1)
+
+def force_undirected(model, A):
+    for i in range(A.shape[0]):
+        for j in range(A.shape[1]):
+            model.addConstr(A[i][j] == A[j][i])
 
 # def add_relu_constraint(model, X, name=None):
 #     activations = model.addMVar(X.shape, name=name)
@@ -37,14 +42,18 @@ def add_relu_constraint(model, X, name=None):
 
 def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None, lin_weight=None, lin_bias=None, project=False, name=None): #lin_r_weight has lin_r_weight, lin_l_weight has lin_l_weight
     if project:
-        raise NotImplementedError
         X = add_fc_constraint(model, X, lin_weight, lin_bias)
         X = add_relu_constraint(model, X)
-    feature_averages = model.addMVar((A.shape[0], X.shape[1]))
-    model.addConstr(gp.quicksum(A@X)==gp.quicksum((A@feature_averages)), name=f"{name}_averages_constraint" if name else None) # TODO: Something like this
+    feature_averages = model.addMVar(X.shape, lb=-big_number, ub=big_number)
+    # feature_averages[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
+    print(A.shape, X.shape, feature_averages.shape)
+    # model.addConstr(feature_averages*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) 
+    num_neighbors = gp.quicksum(A.T) # may need to transpose
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            model.addConstr(feature_averages[i,j] * num_neighbors[i] == gp.quicksum(A[i,k]*X[k,j] for k in range(X.shape[0])), name=f"{name}_averages_constraint" if name else None) 
     ts = model.addMVar((X.shape[0], lin_r_weight.shape[0]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
     model.addConstr(ts == (X@lin_r_weight.T) + (feature_averages@lin_l_weight.T) + np.expand_dims(lin_l_bias, 0), name=f"{name}_output_constraint" if name else None) 
-    # model.addConstr(ts == (X@lin_r_weight.T) + (feature_averages@lin_l_weight.T)) 
     return ts
 
 def global_add_pool(model, X, name=None):
