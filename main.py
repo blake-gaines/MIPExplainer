@@ -5,6 +5,15 @@ from gurobipy import GRB
 from invert import *
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
 from torch_geometric.data import Data, Batch
+import networkx as nx
+
+from torch_geometric.datasets import TUDataset
+
+dataset = TUDataset(root='data/TUDataset', name='MUTAG')
+num_nodes = 12
+num_node_features = dataset.num_node_features
+init_graphs = (d for d in dataset if d.num_nodes==num_nodes)
+next(init_graphs)
 
 def torch_fc_constraint(model, X, layer, name=None):
     return add_fc_constraint(model, X, W=layer.get_parameter(f"weight").detach().numpy(), b=layer.get_parameter(f"bias").detach().numpy(), name=name)
@@ -12,7 +21,6 @@ def torch_fc_constraint(model, X, layer, name=None):
 def torch_sage_constraint(model, A, X, layer, name=None):
     lin_r_weight = layer.get_parameter(f"lin_r.weight").detach().numpy()
     lin_l_weight = layer.get_parameter(f"lin_l.weight").detach().numpy()
-    # b1 = nn.get_parameter(f"{name}.lin_r.bias").detach().numpy()
     lin_l_bias = layer.get_parameter(f"lin_l.bias").detach().numpy()
     lin_weight, lin_bias = None, None
     if layer.project and hasattr(layer, 'lin'):
@@ -26,6 +34,23 @@ def to_batch(X, A):
     g["x"] = X
     return Batch.from_data_list([Data(**g)])
 
+def doubler(G):
+    G.x = G.x.double()
+    if G.edge_weight is not None: G.edge_weight = G.edge_weight.double()
+
+# # Define the callback function
+# def callback(model, where):
+#     if where == GRB.Callback.MIPSOL:
+#         # A new incumbent solution has been found
+#         print("New incumbent solution found! Objective value:", model.cbGet(GRB.Callback.MIPSOL_OBJ))
+        
+#         # Get the variable values
+#         var_values = model.cbGetSolution(model.getVars())
+        
+#         # Print the variable values
+#         for var, val in zip(model.getVars(), var_values):
+#             print(var.varName, "=", val)
+
 model_path = "models/MUTAG_model.pth"
 nn = torch.load(model_path)
 nn.eval()
@@ -34,12 +59,16 @@ nn.double()
 print('\n'.join(f"{t[0]}:".ljust(20)+f"{t[1].shape}" for t in nn.named_parameters()))
 
 m = gp.Model("GNN Inverse")
+# m.setCallback(callback)
 
 # m.setParam("MIQCPMethod", 1) 
-A = m.addMVar((10, 10), vtype=GRB.BINARY, name="A")
-X = m.addMVar((10, 7), vtype=GRB.BINARY, name="x")
+A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
+X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="x")
 # X = m.addMVar((10, 7), lb=-float("inf"), ub=float("inf"), name="X")
-m.addConstr(gp.quicksum(X) <= 1) # REMOVE for non-categorical features
+m.addConstr(gp.quicksum(A)+gp.quicksum(A.T) >= 1) # Connectedness
+force_undirected(m, A)
+# m.addConstr(gp.quicksum(A) >= 1) # Connectedness
+# m.addConstr(gp.quicksum(X.T) == 1) # REMOVE for non-categorical features
 # A = m.addMVar((10, 10), lb=-5, ub=5, name="A")
 # X = m.addMVar((10, 7), lb=-5, ub=5, name="x")
 
@@ -73,15 +102,37 @@ m.write("model.mps")
 #     m.write('tune'+str(i)+'.prm')
 # print("Done Tuning")
 
-X.Start = np.zeros(X.shape)
-batch = to_batch(torch.zeros(X.shape).double(), torch.zeros(A.shape).double())
-all_outputs = nn.get_all_layer_outputs(batch)
-assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
-m.params.StartNumber = 0
-for var, output in zip(output_vars, all_outputs):
-    output = output.detach().numpy().squeeze()
-    assert var.shape == output.shape
-    var.Start = output
+m.NumStart = 5
+m.update()
+for s in range(m.NumStart):
+    m.params.StartNumber = s
+    # X.Start = np.zeros(X.shape)
+    # A.Start = np.zeros(A.shape)
+    # batch = to_batch(torch.zeros(X.shape).double(), torch.zeros(A.shape).double())
+    G = next(init_graphs)
+    doubler(G)
+    print(X.shape, G.x.shape)
+    X.Start = G.x.detach().numpy()
+    A.Start = to_dense_adj(G.edge_index).detach().numpy().squeeze()
+    batch = Batch.from_data_list([G])
+    all_outputs = nn.get_all_layer_outputs(batch)
+    assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
+    for var, output in zip(output_vars, all_outputs):
+        output = output.detach().numpy().squeeze()
+        assert var.shape == output.shape
+        var.Start = output
+
+# X_save = np.load("./X.npy")
+# A_save = np.load("./A.npy")
+# X.Start = X_save
+# A.Start = A_save
+# batch = to_batch(torch.Tensor(X_save).double(), torch.Tensor(A_save).double())
+# all_outputs = nn.get_all_layer_outputs(batch)
+# assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
+# for var, output in zip(output_vars, all_outputs):
+#     output = output.detach().numpy().squeeze()
+#     assert var.shape == output.shape
+#     var.Start = output
 
 # m.addConstr(X == np.zeros(X.shape))
 # batch = to_batch(torch.zeros(X.shape).double(), torch.zeros(A.shape).double())
@@ -92,14 +143,19 @@ for var, output in zip(output_vars, all_outputs):
 #     assert var.shape == output.shape
 #     m.addConstr(var == output)
 
+m.setParam("TimeLimit", 3000)
 m.optimize()
 
-if m.Status >= 3:
+print("Status:", m.Status)
+
+if m.Status in [3, 4]:
     m.computeIIS()
     m.write("model.ilp")
 else:
+    np.save("X.npy", X.X)
+    np.save("A.npy", A.X)
     # print("NN output given X", nn(x=torch.Tensor(X.X), edge_index=dense_to_sparse(torch.Tensor(A.X.astype(np.int64)))[0], batch=torch.zeros(10,dtype=torch.int64)))
-    batch = to_batch(torch.Tensor(X.X).double(), torch.Tensor(A.X.astype(int)).double())
+    batch = to_batch(torch.Tensor(X.X).double(), torch.Tensor(A.X.astype(int)))
     print("NN output given X", nn.get_embedding_outputs(batch)[1].detach().numpy())
     print("NN output given embedding", nn.classify(torch.Tensor(output_vars[5].X).double()))
     print("predicted output", output_vars[-1].X)
