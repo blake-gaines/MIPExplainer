@@ -5,3 +5,5 @@ models/
 *.npy
 *.out
 *.pyc
+solutions/
+figures/
