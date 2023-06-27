@@ -27,7 +27,7 @@ def torch_sage_constraint(model, A, X, layer, name=None):
     if layer.project and hasattr(layer, 'lin'):
         lin_weight = layer.get_parameter(f"lin.weight").detach().numpy()
         lin_bias = layer.get_parameter(f"lin.bias").detach().numpy()
-    return add_sage_constraint(model, A, X, lin_r_weight=lin_r_weight, lin_l_weight=lin_l_weight, lin_l_bias=lin_l_bias, lin_weight=lin_weight, lin_bias=lin_bias, project=layer.project, name=name)
+    return add_sage_constraint(model, A, X, lin_r_weight=lin_r_weight, lin_l_weight=lin_l_weight, lin_l_bias=lin_l_bias, lin_weight=lin_weight, lin_bias=lin_bias, project=layer.project, aggr=layer.aggr, name=name)
 
 def to_batch(X, A):
     g = dict()

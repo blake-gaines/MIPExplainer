@@ -40,24 +40,23 @@ def add_relu_constraint(model, X, name=None):
     model.addConstr(ss <= M*(1-zs), name=f"{name}_constraint_3" if name else None)
     return ts
 
-def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None, lin_weight=None, lin_bias=None, project=False, name=None): #lin_r_weight has lin_r_weight, lin_l_weight has lin_l_weight
+def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None, lin_weight=None, lin_bias=None, project=False, name=None, aggr="mean"): #lin_r_weight has lin_r_weight, lin_l_weight has lin_l_weight
     if project:
         X = add_fc_constraint(model, X, lin_weight, lin_bias)
         X = add_relu_constraint(model, X)
-    # feature_averages = model.addMVar(X.shape, lb=-big_number, ub=big_number)
+        
     model.update()
-    feature_averages = model.addMVar(X.shape, lb=X.lb, ub=X.ub)
-    # feature_averages[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
-    print(A.shape, X.shape, feature_averages.shape)
-    # Ensure gp.quicksum(A) does not have any zeros
-    model.addConstr(feature_averages*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose
-    # num_neighbors = gp.quicksum(A.T) # may need to transpose
-    # for i in range(X.shape[0]):
-    #     for j in range(X.shape[1]):
-    #         model.addConstr(feature_averages[i,j] * num_neighbors[i] == gp.quicksum(A[i,k]*X[k,j] for k in range(X.shape[0])), name=f"{name}_averages_constraint({i},{j})" if name else None) 
-            # model.addConstr(gp.quicksum(feature_averages[i,j] * A[i][k] for k in range(X.shape[0])) == gp.quicksum(A[i,k]*X[k,j] for k in range(X.shape[0])), name=f"{name}_averages_constraint({i},{j})" if name else None) 
+    aggregated_features = model.addMVar(X.shape, lb=X.lb, ub=X.ub)
+
+    if aggr=="mean":
+        # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
+        # Ensure gp.quicksum(A) does not have any zeros
+        model.addConstr(aggregated_features*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose
+    elif aggr=="sum":
+        model.addConstr(aggregated_features == A@X, name=f"{name}_sum_constraint" if name else None)
+
     ts = model.addMVar((X.shape[0], lin_r_weight.shape[0]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
-    model.addConstr(ts == (X@lin_r_weight.T) + (feature_averages@lin_l_weight.T) + np.expand_dims(lin_l_bias, 0), name=f"{name}_output_constraint" if name else None) 
+    model.addConstr(ts == (X@lin_r_weight.T) + (aggregated_features@lin_l_weight.T) + np.expand_dims(lin_l_bias, 0), name=f"{name}_output_constraint" if name else None) 
     return ts
 
 def global_add_pool(model, X, name=None):
