@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.data import Data, Batch
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
+from sklearn.model_selection import train_test_split
 from torch.autograd import Variable
 import networkx as nx
 
@@ -109,25 +110,31 @@ class GNN(torch.nn.Module):
     
 def train(model, train_loader, optimizer, criterion):
     model.train()
-
+    total_loss = 0
     for data in train_loader:  # Iterate in batches over the training dataset.
-         out = model(data.x, data.edge_index, data.batch)  # Perform a single forward pass.
-         loss = criterion(out, data.y)  # Compute the loss.
-         loss.backward()  # Derive gradients.
-         optimizer.step()  # Update parameters based on gradients.
-         optimizer.zero_grad()  # Clear gradients.
+        out = model(data.x, data.edge_index, data.batch)  # Perform a single forward pass.
+        loss = criterion(out, data.y)  # Compute the loss.
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+        loss.backward()  # Derive gradients.
+        optimizer.step()  # Update parameters based on gradients.
+        optimizer.zero_grad()  # Clear gradients.
+        total_loss += float(loss)
+    return total_loss/len(train_loader)
 
+@torch.no_grad()
 def test(model, loader):
-     model.eval()
+    model.eval()
 
-     correct = 0
-     for data in loader:  # Iterate in batches over the training/test dataset.
-         out = model(data.x, data.edge_index, data.batch)  
-         pred = out.argmax(dim=1)  # Use the class with highest probability.
-         correct += int((pred == data.y).sum())  # Check against ground-truth labels.
-     return correct / len(loader.dataset)  # Derive ratio of correct predictions.
+    correct = 0
+    for data in loader:  # Iterate in batches over the training/test dataset.
+        out = model(data.x, data.edge_index, data.batch)  
+        pred = out.argmax(dim=1)  # Use the class with highest probability.
+        correct += int((pred == data.y).sum())  # Check against ground-truth labels.
+    return correct / len(loader.dataset)  # Derive ratio of correct predictions.
 
 if __name__ == "__main__":
+    torch.manual_seed(12345)
+
     if not os.path.isdir("data"): os.mkdir("data")
     if not os.path.isdir("models"): os.mkdir("models")
 
@@ -166,12 +173,8 @@ if __name__ == "__main__":
     print(f'Number of features: {dataset.num_features}')
     print(f'Number of classes: {dataset.num_classes}')
 
+    train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=dataset.y, random_state=7)
 
-    torch.manual_seed(12345)
-    dataset = dataset.shuffle()
-
-    train_dataset = dataset[:150]
-    test_dataset = dataset[150:]
     print(f'Number of training graphs: {len(train_dataset)}')
     print(f'Number of test graphs: {len(test_dataset)}')
     print()
@@ -184,12 +187,12 @@ if __name__ == "__main__":
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         criterion = torch.nn.CrossEntropyLoss()
         print(model)
-        pbar = tqdm(range(1,epochs))
+        pbar = tqdm(range(1,epochs+1))
         for epoch in pbar:
-            train(model, train_loader, optimizer, criterion)
+            avg_loss = train(model, train_loader, optimizer, criterion)
             train_acc = test(model, train_loader)
             test_acc = test(model, test_loader)
-            pbar.set_postfix_str(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
+            pbar.set_postfix_str(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}, Avg Loss: {avg_loss:.4f}')
 
         torch.save(model, model_path)
     else:
