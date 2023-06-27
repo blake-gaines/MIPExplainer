@@ -6,6 +6,7 @@ from invert import *
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
 from torch_geometric.data import Data, Batch
 import networkx as nx
+import os
 
 from torch_geometric.datasets import TUDataset
 
@@ -38,18 +39,10 @@ def doubler(G):
     G.x = G.x.double()
     if G.edge_weight is not None: G.edge_weight = G.edge_weight.double()
 
-# # Define the callback function
-# def callback(model, where):
-#     if where == GRB.Callback.MIPSOL:
-#         # A new incumbent solution has been found
-#         print("New incumbent solution found! Objective value:", model.cbGet(GRB.Callback.MIPSOL_OBJ))
-        
-#         # Get the variable values
-#         var_values = model.cbGetSolution(model.getVars())
-        
-#         # Print the variable values
-#         for var, val in zip(model.getVars(), var_values):
-#             print(var.varName, "=", val)
+def save_graph(A, X, index):
+    np.save(f"solutions/X_{index}.npy", X)
+    np.save(f"solutions/A_{index}.npy", A)
+
 
 model_path = "models/MUTAG_model.pth"
 nn = torch.load(model_path)
@@ -59,11 +52,12 @@ nn.double()
 print('\n'.join(f"{t[0]}:".ljust(20)+f"{t[1].shape}" for t in nn.named_parameters()))
 
 m = gp.Model("GNN Inverse")
-# m.setCallback(callback)
 
 # m.setParam("MIQCPMethod", 1) 
 A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
-X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="x")
+X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
+m.update()
+
 # X = m.addMVar((10, 7), lb=-float("inf"), ub=float("inf"), name="X")
 m.addConstr(gp.quicksum(A)+gp.quicksum(A.T) >= 1) # Connectedness
 force_undirected(m, A)
@@ -94,15 +88,25 @@ m.setObjective(output_vars[-1][0], GRB.MAXIMIZE)
 m.update()
 m.write("model.mps")
 
-# print("Tuning")
-# # m.setParam("TuneTimeLimit", 120)
-# m.tune()
-# for i in range(m.tuneResultCount):
-#     m.getTuneResult(i)
-#     m.write('tune'+str(i)+'.prm')
-# print("Done Tuning")
+# Define the callback function
+solution_count = 0
+def callback(model, where):
+    global A, X, solution_count
+    if where == GRB.Callback.MIPSOL:
+        # A new incumbent solution has been found
+        print(f"New incumbent solution found (ID {solution_count}) Objective value: {model.cbGet(GRB.Callback.MIPSOL_OBJ)}")
 
-m.NumStart = 5
+        solution_count += 1
+        X_sol = model.cbGetSolution(X)
+        A_sol = model.cbGetSolution(A)
+        output_sol = model.cbGetSolution(output_vars[-1])
+
+        batch = to_batch(torch.Tensor(X_sol).double(), torch.Tensor(A_sol.astype(int)))
+        print("NN output given X:", nn.get_embedding_outputs(batch)[1].detach().numpy())
+        print("predicted output:", output_sol)
+        save_graph(A=A_sol, X=X_sol, index=solution_count)
+
+m.NumStart = 1
 m.update()
 for s in range(m.NumStart):
     m.params.StartNumber = s
@@ -121,6 +125,8 @@ for s in range(m.NumStart):
         output = output.detach().numpy().squeeze()
         assert var.shape == output.shape
         var.Start = output
+m.update()
+save_graph(A.Start, X.Start, 0)
 
 # X_save = np.load("./X.npy")
 # A_save = np.load("./A.npy")
@@ -143,8 +149,16 @@ for s in range(m.NumStart):
 #     assert var.shape == output.shape
 #     m.addConstr(var == output)
 
-m.setParam("TimeLimit", 3000)
-m.optimize()
+# print("Tuning")
+# m.setParam("TuneTimeLimit", 120)
+# m.tune()
+# for i in range(m.tuneResultCount):
+#     m.getTuneResult(i)
+#     m.write('tune'+str(i)+'.prm')
+# print("Done Tuning")
+
+# m.setParam("TimeLimit", 1000)
+m.optimize(callback)
 
 print("Status:", m.Status)
 
@@ -152,8 +166,7 @@ if m.Status in [3, 4]:
     m.computeIIS()
     m.write("model.ilp")
 else:
-    np.save("X.npy", X.X)
-    np.save("A.npy", A.X)
+    save_graph(A.X, X.X, "Final")
     # print("NN output given X", nn(x=torch.Tensor(X.X), edge_index=dense_to_sparse(torch.Tensor(A.X.astype(np.int64)))[0], batch=torch.zeros(10,dtype=torch.int64)))
     batch = to_batch(torch.Tensor(X.X).double(), torch.Tensor(A.X.astype(int)))
     print("NN output given X", nn.get_embedding_outputs(batch)[1].detach().numpy())
