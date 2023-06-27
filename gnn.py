@@ -34,12 +34,18 @@ class GNN(torch.nn.Module):
         else:
             raise NotImplementedError
         torch.manual_seed(12345)
-        self.conv1 = conv(in_channels, 32)
-        self.conv2 = conv(32, 48)
-        self.conv3 = conv(48, 64)
-        self.lin1 = Linear(64, 32)
-        self.lin2 = Linear(32, 32)
-        self.lin3 = Linear(32, out_channels)
+        # self.conv1 = conv(in_channels, 32)
+        # self.conv2 = conv(32, 48)
+        # self.conv3 = conv(48, 64)
+        # self.lin1 = Linear(64, 32)
+        # self.lin2 = Linear(32, 32)
+        # self.lin3 = Linear(32, out_channels)
+        self.conv1 = conv(in_channels, 16)
+        self.conv2 = conv(16, 16)
+        self.conv3 = conv(16, 16)
+        self.lin1 = Linear(16, 16)
+        self.lin2 = Linear(16, 16)
+        self.lin3 = Linear(16, out_channels)
     
     def get_embedding_outputs(self, data):
         x, edge_index, edge_weight, batch = data.x, data.edge_index, data.edge_weight, data.batch
