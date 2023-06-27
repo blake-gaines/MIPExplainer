@@ -49,6 +49,7 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None
     feature_averages = model.addMVar(X.shape, lb=X.lb, ub=X.ub)
     # feature_averages[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
     print(A.shape, X.shape, feature_averages.shape)
+    # Ensure gp.quicksum(A) does not have any zeros
     model.addConstr(feature_averages*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose
     # num_neighbors = gp.quicksum(A.T) # may need to transpose
     # for i in range(X.shape[0]):
