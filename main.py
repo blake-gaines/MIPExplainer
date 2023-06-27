@@ -59,10 +59,9 @@ if __name__ == "__main__":
     m.update()
 
     # X = m.addMVar((10, 7), lb=-float("inf"), ub=float("inf"), name="X")
-    m.addConstr(gp.quicksum(A)+gp.quicksum(A.T) >= 1) # Connectedness
+    m.addConstr(gp.quicksum(A) >= 1) # Connectedness, may need a transpose
     force_undirected(m, A)
-    # m.addConstr(gp.quicksum(A) >= 1) # Connectedness
-    # m.addConstr(gp.quicksum(X.T) == 1) # REMOVE for non-categorical features
+    m.addConstr(gp.quicksum(X.T) == 1) # REMOVE for non-categorical features
     # A = m.addMVar((10, 10), lb=-5, ub=5, name="A")
     # X = m.addMVar((10, 7), lb=-5, ub=5, name="x")
 
