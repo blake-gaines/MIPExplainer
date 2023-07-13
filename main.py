@@ -7,11 +7,14 @@ from torch_geometric.utils import to_dense_adj, dense_to_sparse
 from torch_geometric.data import Data, Batch
 import networkx as nx
 import os
+from torch.nn import Linear, ReLU
+from torch_geometric.nn.aggr import SumAggregation, MeanAggregation, MaxAggregation
+from torch_geometric.nn import SAGEConv
 
 from torch_geometric.datasets import TUDataset
 
 dataset = TUDataset(root='data/TUDataset', name='MUTAG')
-num_nodes = 12
+num_nodes = 10
 num_node_features = dataset.num_node_features
 init_graphs = (d for d in dataset if d.num_nodes==num_nodes)
 next(init_graphs)
@@ -20,6 +23,7 @@ def torch_fc_constraint(model, X, layer, name=None):
     return add_fc_constraint(model, X, W=layer.get_parameter(f"weight").detach().numpy(), b=layer.get_parameter(f"bias").detach().numpy(), name=name)
 
 def torch_sage_constraint(model, A, X, layer, name=None):
+    # TODO: Cleanup
     lin_r_weight = layer.get_parameter(f"lin_r.weight").detach().numpy()
     lin_l_weight = layer.get_parameter(f"lin_l.weight").detach().numpy()
     lin_l_bias = layer.get_parameter(f"lin_l.bias").detach().numpy()
@@ -49,7 +53,7 @@ if __name__ == "__main__":
     nn.eval()
     nn.double()
 
-    print('\n'.join(f"{t[0]}:".ljust(20)+f"{t[1].shape}" for t in nn.named_parameters()))
+    print(nn)
 
     m = gp.Model("GNN Inverse")
 
@@ -65,21 +69,36 @@ if __name__ == "__main__":
     # A = m.addMVar((10, 10), lb=-5, ub=5, name="A")
     # X = m.addMVar((10, 7), lb=-5, ub=5, name="x")
 
-    output_vars = []
+    output_vars = [X]
+    for name, layer in nn.layers.items():
+        previous_layer_output = output_vars[-1]
+        if isinstance(layer, Linear):
+            output_vars.append(torch_fc_constraint(m, previous_layer_output, layer, name=name))
+        elif isinstance(layer, SAGEConv):
+            output_vars.append(torch_sage_constraint(m, A, previous_layer_output, layer, name=name))
+        elif isinstance(layer, MeanAggregation):
+            output_vars.append(global_mean_pool(m, previous_layer_output, name=name))
+        elif isinstance(layer, ReLU):
+            output_vars.append(add_relu_constraint(m, output_vars[-1], name=name))
+        else:
+            raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
 
-    output_vars.append(torch_sage_constraint(m, A, X, nn.conv1, name="conv1"))
-    output_vars.append(add_relu_constraint(m, output_vars[-1], name="conv1_activation"))
-    output_vars.append(torch_sage_constraint(m, A, output_vars[-1], nn.conv2, name="conv2"))
-    output_vars.append(add_relu_constraint(m, output_vars[-1], name="conv2_activation"))
-    output_vars.append(torch_sage_constraint(m, A, output_vars[-1], nn.conv3, name="conv3"))
-    # output_vars.append(add_relu_constraint(m, output_vars[-1]))
-    # TODO: Add ReLU
-    output_vars.append(global_mean_pool(m, output_vars[-1], name="pool"))
-    output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin1, name="lin1"))
-    output_vars.append(add_relu_constraint(m, output_vars[-1], name="lin1_activation"))
-    output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin2, name="lin2"))
-    output_vars.append(add_relu_constraint(m, output_vars[-1], name="lin2_activation"))
-    output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin3, name="lin3"))
+
+    # output_vars = []
+
+    # output_vars.append(torch_sage_constraint(m, A, X, nn.conv1, name="conv1"))
+    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="conv1_activation"))
+    # output_vars.append(torch_sage_constraint(m, A, output_vars[-1], nn.conv2, name="conv2"))
+    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="conv2_activation"))
+    # output_vars.append(torch_sage_constraint(m, A, output_vars[-1], nn.conv3, name="conv3"))
+    # # output_vars.append(add_relu_constraint(m, output_vars[-1]))
+    # # TODO: Add ReLU
+    # output_vars.append(global_mean_pool(m, output_vars[-1], name="pool"))
+    # output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin1, name="lin1"))
+    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="lin1_activation"))
+    # output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin2, name="lin2"))
+    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="lin2_activation"))
+    # output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin3, name="lin3"))
 
     # m.setObjective((output[0]-1.5)*(output[0]-1.5), GRB.MINIMIZE)
     m.setObjective(output_vars[-1][0], GRB.MAXIMIZE)
@@ -100,8 +119,10 @@ if __name__ == "__main__":
             A_sol = model.cbGetSolution(A)
             output_sol = model.cbGetSolution(output_vars[-1])
 
-            batch = to_batch(torch.Tensor(X_sol).double(), torch.Tensor(A_sol.astype(int)))
-            print("NN output given X:", nn.get_embedding_outputs(batch)[1].detach().numpy())
+            # batch = to_batch(torch.Tensor(X_sol).double(), torch.Tensor(A_sol.astype(int)))
+            # print("NN output given X:", nn.get_embedding_outputs(batch)[1].detach().numpy())
+            print("NN output given X:", nn.forwardXA(X_sol, A_sol))
+
             print("predicted output:", output_sol)
             save_graph(A=A_sol, X=X_sol, index=solution_count)
 
@@ -115,13 +136,13 @@ if __name__ == "__main__":
         G = next(init_graphs)
         doubler(G)
         print(X.shape, G.x.shape)
-        X.Start = G.x.detach().numpy()
+        # X.Start = G.x.detach().numpy()
         A.Start = to_dense_adj(G.edge_index).detach().numpy().squeeze()
         batch = Batch.from_data_list([G])
         all_outputs = nn.get_all_layer_outputs(batch)
         assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
         for var, output in zip(output_vars, all_outputs):
-            output = output.detach().numpy().squeeze()
+            output = output[1].detach().numpy().squeeze()
             assert var.shape == output.shape
             var.Start = output
     m.update()
@@ -148,15 +169,15 @@ if __name__ == "__main__":
     #     assert var.shape == output.shape
     #     m.addConstr(var == output)
 
-    # print("Tuning")
-    # m.setParam("TuneTimeLimit", 120)
-    # m.tune()
-    # for i in range(m.tuneResultCount):
-    #     m.getTuneResult(i)
-    #     m.write('tune'+str(i)+'.prm')
-    # print("Done Tuning")
+    print("Tuning")
+    m.setParam("TuneTimeLimit", 7200)
+    m.tune()
+    for i in range(m.tuneResultCount):
+        m.getTuneResult(i)
+        m.write('tune'+str(i)+'.prm')
+    print("Done Tuning")
 
-    # m.setParam("TimeLimit", 1000)
+    m.setParam("TimeLimit", 3600)
     m.optimize(callback)
 
     print("Status:", m.Status)
@@ -168,7 +189,7 @@ if __name__ == "__main__":
         save_graph(A.X, X.X, "Final")
         # print("NN output given X", nn(x=torch.Tensor(X.X), edge_index=dense_to_sparse(torch.Tensor(A.X.astype(np.int64)))[0], batch=torch.zeros(10,dtype=torch.int64)))
         batch = to_batch(torch.Tensor(X.X).double(), torch.Tensor(A.X.astype(int)))
-        print("NN output given X", nn.get_embedding_outputs(batch)[1].detach().numpy())
+        print("NN output given X", nn.forwardXA(X.X, A.X))
         print("NN output given embedding", nn.classify(torch.Tensor(output_vars[5].X).double()))
         print("predicted output", output_vars[-1].X)
 
