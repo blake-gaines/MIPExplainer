@@ -3,8 +3,8 @@ from gurobipy import GRB
 import numpy as np
 from itertools import product
 
-M = 100
-big_number = float("inf")
+M = 128
+big_number = 128
 
 def add_fc_constraint(model, X, W, b, name=None):
     ts = model.addMVar((W.shape[0],), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)

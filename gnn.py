@@ -17,6 +17,7 @@ from torch_geometric.loader import DataLoader
 import torch
 from tqdm import tqdm
 import os
+import pickle
 
 class GNN(torch.nn.Module):
     aggr_classes = {
@@ -24,15 +25,15 @@ class GNN(torch.nn.Module):
         "sum": SumAggregation,
         "max": MaxAggregation,
     }
-    def __init__(self, in_channels, out_channels, conv_features=[16, 8], lin_features=[], global_aggr="mean"):
+    def __init__(self, in_channels, out_channels, conv_features, lin_features, global_aggr="mean", conv_aggr="mean"):
         super(GNN, self).__init__()
 
         self.layers = ModuleDict()
 
-        self.layers["Conv_0"] = SAGEConv(in_channels, conv_features[0])
+        self.layers["Conv_0"] = SAGEConv(in_channels, conv_features[0], aggr=conv_aggr)
         self.layers[f"Conv_0_Relu"] = ReLU()
         for i, shape in enumerate(zip(conv_features, conv_features[1:])):
-            self.layers[f"Conv_{i+1}"] = SAGEConv(*shape)
+            self.layers[f"Conv_{i+1}"] = SAGEConv(*shape, aggr=conv_aggr)
             self.layers[f"Conv_{i+1}_Relu"] = ReLU()
 
         self.layers["Aggregation"] = self.aggr_classes[global_aggr]()
@@ -79,88 +80,6 @@ class GNN(torch.nn.Module):
             else:
                 outputs.append((name, layer(outputs[-1][1])))
         return outputs
-
-# class GNN(torch.nn.Module):
-#     def __init__(self, in_channels, out_channels, conv_type="sage"):
-#         super(GNN, self).__init__()
-#         self.conv_type = conv_type
-#         if conv_type == "gcn":
-#             conv = GCNConv
-#         elif conv_type == "sage":
-#             conv = SAGEConv
-#         else:
-#             raise NotImplementedError
-#         # self.conv1 = conv(in_channels, 32)
-#         # self.conv2 = conv(32, 48)
-#         # self.conv3 = conv(48, 64)
-#         # self.lin1 = Linear(64, 32)
-#         # self.lin2 = Linear(32, 32)
-#         # self.lin3 = Linear(32, out_channels)
-#         self.conv1 = conv(in_channels, 16)
-#         self.conv2 = conv(16, 16)
-#         self.conv3 = conv(16, 16)
-#         self.lin1 = Linear(16, 16)
-#         self.lin2 = Linear(16, 16)
-#         self.lin3 = Linear(16, out_channels)
-    
-#     def get_embedding_outputs(self, data):
-#         x, edge_index, edge_weight, batch = data.x, data.edge_index, data.edge_weight, data.batch
-#         embedding = self.embed(x, edge_index, batch, edge_weight)
-#         output =  self.classify(embedding)
-#         return embedding, output
-    
-#     def get_all_layer_outputs(self, data):
-#         x, edge_index, edge_weight, batch = data.x, data.edge_index, data.edge_weight, data.batch
-#         outputs = []
-#         outputs.append(self.conv1(x, edge_index))
-#         outputs.append(outputs[-1].relu())
-#         outputs.append(self.conv2(outputs[-1], edge_index))
-#         outputs.append(outputs[-1].relu())
-#         outputs.append(self.conv3(outputs[-1], edge_index))
-#         outputs.append(global_mean_pool(outputs[-1], batch))
-#         # TODO: Add ReLU
-#         outputs.append(self.lin1(outputs[-1]))
-#         outputs.append(outputs[-1].relu())
-#         outputs.append(self.lin2(outputs[-1]))
-#         outputs.append(outputs[-1].relu())
-#         outputs.append(self.lin3(outputs[-1]))
-#         return outputs 
-
-#     def forward(self, x, edge_index, batch, edge_weight=None):
-#         if edge_weight is None: edge_weight = torch.ones(edge_index.shape[1])
-#         embedding = self.embed(x, edge_index, batch, edge_weight)
-#         output =  self.classify(embedding)
-#         return output
-
-#     def embed(self, x, edge_index, batch, edge_weight=None):
-#         if edge_weight is None: edge_weight = torch.ones(edge_index.shape[1])
-        
-#         # 1. Obtain node embeddings 
-#         if self.conv_type == "gcn":
-#             x = self.conv1(x, edge_index, edge_weight)
-#             x = x.relu()
-#             x = self.conv2(x, edge_index, edge_weight)
-#             x = x.relu()
-#             x = self.conv3(x, edge_index, edge_weight)
-#         elif self.conv_type == "sage":
-#             x = self.conv1(x, edge_index)
-#             x = x.relu()
-#             x = self.conv2(x, edge_index)
-#             x = x.relu()
-#             x = self.conv3(x, edge_index)
-
-#         x = global_mean_pool(x, batch)  # [batch_size, hidden_channels]
-#         return x
-    
-#     def classify(self, x):
-#         # 3. Apply a final classifier
-#         # x = F.dropout(x, p=0.5, training=self.training)
-#         x = self.lin1(x)
-#         x = x.relu()
-#         x = self.lin2(x)
-#         x = x.relu()
-#         x = self.lin3(x)
-#         return x
     
 def train(model, train_loader, optimizer, criterion):
     model.train()
@@ -194,13 +113,16 @@ if __name__ == "__main__":
     if not os.path.isdir("data"): os.mkdir("data")
     if not os.path.isdir("models"): os.mkdir("models")
 
-    epochs = 1000
+    epochs = 100
     num_inits = 5
     num_explanations = 3
     conv_type = "sage"
+    global_aggr = "sum"
+    conv_aggr = "sum"
 
     load_model = False
-    model_path = "models/MUTAG_model.pth"
+    # model_path = "models/MUTAG_model.pth"
+    model_path = "models/OurMotifs_model.pth"
 
     log_run = False
 
@@ -209,22 +131,23 @@ if __name__ == "__main__":
     from torch_geometric.datasets.motif_generator import HouseMotif
     from torch_geometric.datasets.motif_generator import CycleMotif
 
-    dataset = TUDataset(root="data/TUDataset", name="MUTAG")
+    # dataset = TUDataset(root="data/TUDataset", name="MUTAG")
     # print(dataset[0].x)
-    # dataset = BA2MotifDataset(root="data/BA2Motif")
-    # print(dataset[0])
-    # dataset = BAMultiShapesDataset(root="data/BAMultiShapes")
-    # print(dataset[0].x)
-    # sys.exit(0)
+    with open("data/OurMotifs/dataset.pkl", "rb") as f:
+        dataset = pickle.load(f)
 
     print()
     print(f'Dataset: {dataset}:')
     print('====================')
     print(f'Number of graphs: {len(dataset)}')
-    print(f'Number of features: {dataset.num_features}')
-    print(f'Number of classes: {dataset.num_classes}')
+    # print(f'Number of features: {dataset.num_features}')
+    # print(f'Number of classes: {dataset.num_classes}')
 
-    train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=dataset.y, random_state=7)
+    # train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=dataset.y, random_state=7)
+    ys = [d.y for d in dataset]
+    num_classes = len(set(ys))
+    num_node_features = dataset[0].x.shape[1]
+    train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=ys, random_state=7)
 
     print(f'Number of training graphs: {len(train_dataset)}')
     print(f'Number of test graphs: {len(test_dataset)}')
@@ -235,7 +158,7 @@ if __name__ == "__main__":
 
     if not load_model:
         # model = GNN(in_channels=dataset.num_node_features, out_channels=dataset.num_classes, conv_type=conv_type, aggr="sum")
-        model = GNN(in_channels=dataset.num_node_features, out_channels=dataset.num_classes, conv_features=[16, 16, 16], lin_features=[16, 16], global_aggr="mean")
+        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4,4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         criterion = torch.nn.CrossEntropyLoss()
         print(model)

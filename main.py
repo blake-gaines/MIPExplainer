@@ -12,11 +12,18 @@ from torch_geometric.nn.aggr import SumAggregation, MeanAggregation, MaxAggregat
 from torch_geometric.nn import SAGEConv
 
 from torch_geometric.datasets import TUDataset
+import pickle
 
-dataset = TUDataset(root='data/TUDataset', name='MUTAG')
-num_nodes = 10
-num_node_features = dataset.num_node_features
-init_graphs = (d for d in dataset if d.num_nodes==num_nodes)
+# dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+# num_nodes = 10
+# init_graphs = (d for d in dataset if d.num_nodes==num_nodes)
+# num_node_features = dataset.num_node_features
+
+with open("data/OurMotifs/dataset.pkl", "rb") as f:
+    dataset = pickle.load(f)
+num_nodes = dataset[0].x.shape[0]
+num_node_features = dataset[0].x.shape[1]
+init_graphs = (d for d in dataset[:5])
 next(init_graphs)
 
 def torch_fc_constraint(model, X, layer, name=None):
@@ -48,7 +55,8 @@ def save_graph(A, X, index):
     np.save(f"solutions/A_{index}.npy", A)
 
 if __name__ == "__main__":
-    model_path = "models/MUTAG_model.pth"
+    # model_path = "models/MUTAG_model.pth"
+    model_path = "models/OurMotifs_model.pth"
     nn = torch.load(model_path)
     nn.eval()
     nn.double()
@@ -59,11 +67,11 @@ if __name__ == "__main__":
 
     # m.setParam("MIQCPMethod", 1) 
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
-    X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
+    X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
     m.update()
 
     # X = m.addMVar((10, 7), lb=-float("inf"), ub=float("inf"), name="X")
-    m.addConstr(gp.quicksum(A) >= 1) # Connectedness, may need a transpose or something
+    m.addConstr(gp.quicksum(A) >= 1) # Nodes need an edge somewhere. Need this for SAGEConv inverse to work
     force_undirected(m, A)
     m.addConstr(gp.quicksum(X.T) == 1) # REMOVE for non-categorical features
     # A = m.addMVar((10, 10), lb=-5, ub=5, name="A")
@@ -78,6 +86,8 @@ if __name__ == "__main__":
             output_vars.append(torch_sage_constraint(m, A, previous_layer_output, layer, name=name))
         elif isinstance(layer, MeanAggregation):
             output_vars.append(global_mean_pool(m, previous_layer_output, name=name))
+        elif isinstance(layer, SumAggregation):
+            output_vars.append(global_add_pool(m, previous_layer_output, name=name))
         elif isinstance(layer, ReLU):
             output_vars.append(add_relu_constraint(m, output_vars[-1], name=name))
         else:
@@ -169,15 +179,15 @@ if __name__ == "__main__":
     #     assert var.shape == output.shape
     #     m.addConstr(var == output)
 
-    print("Tuning")
-    m.setParam("TuneTimeLimit", 7200)
-    m.tune()
-    for i in range(m.tuneResultCount):
-        m.getTuneResult(i)
-        m.write('tune'+str(i)+'.prm')
-    print("Done Tuning")
+    # print("Tuning")
+    # m.setParam("TuneTimeLimit", 86400)
+    # m.tune()
+    # for i in range(m.tuneResultCount):
+    #     m.getTuneResult(i)
+    #     m.write('tune'+str(i)+'.prm')
+    # print("Done Tuning")
 
-    m.setParam("TimeLimit", 3600)
+    m.setParam("TimeLimit", 3600*4)
     m.optimize(callback)
 
     print("Status:", m.Status)
@@ -190,7 +200,7 @@ if __name__ == "__main__":
         # print("NN output given X", nn(x=torch.Tensor(X.X), edge_index=dense_to_sparse(torch.Tensor(A.X.astype(np.int64)))[0], batch=torch.zeros(10,dtype=torch.int64)))
         batch = to_batch(torch.Tensor(X.X).double(), torch.Tensor(A.X.astype(int)))
         print("NN output given X", nn.forwardXA(X.X, A.X))
-        print("NN output given embedding", nn.classify(torch.Tensor(output_vars[5].X).double()))
+        # print("NN output given embedding", nn.classify(torch.Tensor(output_vars[5].X).double()))
         print("predicted output", output_vars[-1].X)
 
         # a = nn.conv1(torch.Tensor(X.X), dense_to_sparse(torch.Tensor(A.X.astype(int)))[0]).detach().numpy()
