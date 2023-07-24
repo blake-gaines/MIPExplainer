@@ -110,7 +110,6 @@ def test(model, loader):
 if __name__ == "__main__":
     torch.manual_seed(12345)
 
-    if not os.path.isdir("data"): os.mkdir("data")
     if not os.path.isdir("models"): os.mkdir("models")
 
     epochs = 100

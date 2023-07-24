@@ -10,9 +10,13 @@ import os
 from torch.nn import Linear, ReLU
 from torch_geometric.nn.aggr import SumAggregation, MeanAggregation, MaxAggregation
 from torch_geometric.nn import SAGEConv
-
+import time
 from torch_geometric.datasets import TUDataset
 import pickle
+
+print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
+
+if not os.path.isdir("solutions"): os.mkdir("solutions")
 
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 # num_nodes = 10
@@ -48,7 +52,7 @@ def to_batch(X, A):
 
 def doubler(G):
     G.x = G.x.double()
-    if G.edge_weight is not None: G.edge_weight = G.edge_weight.double()
+    if G.edge_weight is not None: G.edge_weight = G.edge_weight.to(torch.int64)
 
 def save_graph(A, X, index):
     np.save(f"solutions/X_{index}.npy", X)
@@ -179,13 +183,16 @@ if __name__ == "__main__":
     #     assert var.shape == output.shape
     #     m.addConstr(var == output)
 
-    # print("Tuning")
-    # m.setParam("TuneTimeLimit", 86400)
-    # m.tune()
-    # for i in range(m.tuneResultCount):
-    #     m.getTuneResult(i)
-    #     m.write('tune'+str(i)+'.prm')
-    # print("Done Tuning")
+    print("Tuning")
+    m.setParam("TuneTimeLimit", 3600*1)
+    m.tune()
+    m.getTuneResult(0).writeSolution("tune_report.txt")
+    for i in range(m.tuneResultCount):
+        m.getTuneResult(i)
+        m.write('tune'+str(i)+'.prm')
+    print("Done Tuning")
+
+    # m.read("./tune0.prm")
 
     m.setParam("TimeLimit", 3600*4)
     m.optimize(callback)
@@ -210,3 +217,5 @@ if __name__ == "__main__":
         # print(a[idx], b[idx])
         # print("ADJ MATRIX", A.X)
         # print("X", X.X)
+
+print(time.strftime("\nEnd Time: %H:%M:%S", time.localtime()))
