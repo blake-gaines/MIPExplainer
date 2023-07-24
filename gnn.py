@@ -125,10 +125,10 @@ if __name__ == "__main__":
 
     log_run = False
 
-    from torch_geometric.datasets import ExplainerDataset, BA2MotifDataset, BAMultiShapesDataset
-    from torch_geometric.datasets.graph_generator import BAGraph
-    from torch_geometric.datasets.motif_generator import HouseMotif
-    from torch_geometric.datasets.motif_generator import CycleMotif
+    # from torch_geometric.datasets import ExplainerDataset, BA2MotifDataset, BAMultiShapesDataset
+    # from torch_geometric.datasets.graph_generator import BAGraph
+    # from torch_geometric.datasets.motif_generator import HouseMotif
+    # from torch_geometric.datasets.motif_generator import CycleMotif
 
     # dataset = TUDataset(root="data/TUDataset", name="MUTAG")
     # print(dataset[0].x)
