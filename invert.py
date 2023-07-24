@@ -1,7 +1,6 @@
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
-from itertools import product
 
 M = 128
 big_number = 128
