@@ -39,7 +39,7 @@ def add_relu_constraint(model, X, name=None):
     model.addConstr(ss <= M*(1-zs), name=f"{name}_constraint_3" if name else None)
     return ts
 
-def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None, lin_weight=None, lin_bias=None, project=False, name=None, aggr="mean"): #lin_r_weight has lin_r_weight, lin_l_weight has lin_l_weight
+def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None, lin_weight=None, lin_bias=None, project=False, name=None, aggr="mean"):
     if project:
         X = add_fc_constraint(model, X, lin_weight, lin_bias)
         X = add_relu_constraint(model, X)
@@ -67,45 +67,3 @@ def global_mean_pool(model, X, name=None):
     averages = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages
-
-if __name__ == "__main__":
-    W1 = np.array([[1, 1, 1, 1, 1]])
-    b1 = np.array([[0, -1, -2, -3, -4]])
-    W2 = np.array([[3.2, -3, 1.4, 2.2, -1]]).T
-    b2 = np.array([[-0.2]]).T
-    target = 1.5
-
-    m = gp.Model("MLP Inverse")
-    x = m.addMVar((1, 1), lb=-big_number, ub=big_number, name="x")
-
-    hidden_activations = add_fc_constraint(m, x, W1, b1, "hidden")
-    hidden_activations = add_relu_constraint(m, hidden_activations)
-    # hidden_activations = add_relu_constraint(m, hidden_activations)
-    output = add_fc_constraint(m, hidden_activations, W2, b2, "output")
-
-    m.setObjective((output-1.5)*(output-1.5), GRB.MINIMIZE)
-    m.optimize()
-
-    m.update()
-    print(m.display())
-
-    print(x.X)
-
-    m = gp.Model("GCN Inverse")
-    m.params.LogFile = "./log.txt"
-    m.params.NonConvex = 0
-    m.params.MIQCPMethod = 1
-    A = m.addMVar((3, 3), vtype=GRB.BINARY, name="x")
-    X = m.addMVar((3, 1), lb=-big_number, ub=big_number, name="x")
-
-    node_embeddings = add_gcn_constraint(m, A, X, W1, b1)
-    node_embeddings = add_relu_constraint(m, node_embeddings)
-    # node_embeddings = add_relu_constraint(m, node_embeddings)
-    graph_embedding = global_add_pool(node_embeddings)
-    output = add_fc_constraint(m, graph_embedding, W2, b2)
-
-    m.setObjective((output-1.5)*(output-1.5), GRB.MINIMIZE)
-    m.optimize()
-
-    print(X.X)
-    print(A.X)

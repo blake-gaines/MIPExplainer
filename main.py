@@ -69,18 +69,20 @@ if __name__ == "__main__":
 
     m = gp.Model("GNN Inverse")
 
-    # m.setParam("MIQCPMethod", 1) 
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
     X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
     m.update()
 
     # X = m.addMVar((10, 7), lb=-float("inf"), ub=float("inf"), name="X")
-    m.addConstr(gp.quicksum(A) >= 1) # Nodes need an edge somewhere. Need this for SAGEConv inverse to work
-    force_undirected(m, A)
+    m.addConstr(gp.quicksum(A) >= 1) # Nodes need an edge. Need this for SAGEConv inverse to work
+    force_undirected(m, A) # Generate an undirected graph
     m.addConstr(gp.quicksum(X.T) == 1) # REMOVE for non-categorical features
+
+    ## Continuous Alternatives
     # A = m.addMVar((10, 10), lb=-5, ub=5, name="A")
     # X = m.addMVar((10, 7), lb=-5, ub=5, name="x")
 
+    ## Build a MIQCP for the trained neural network
     output_vars = [X]
     for name, layer in nn.layers.items():
         previous_layer_output = output_vars[-1]
@@ -97,28 +99,11 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
 
-
-    # output_vars = []
-
-    # output_vars.append(torch_sage_constraint(m, A, X, nn.conv1, name="conv1"))
-    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="conv1_activation"))
-    # output_vars.append(torch_sage_constraint(m, A, output_vars[-1], nn.conv2, name="conv2"))
-    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="conv2_activation"))
-    # output_vars.append(torch_sage_constraint(m, A, output_vars[-1], nn.conv3, name="conv3"))
-    # # output_vars.append(add_relu_constraint(m, output_vars[-1]))
-    # # TODO: Add ReLU
-    # output_vars.append(global_mean_pool(m, output_vars[-1], name="pool"))
-    # output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin1, name="lin1"))
-    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="lin1_activation"))
-    # output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin2, name="lin2"))
-    # output_vars.append(add_relu_constraint(m, output_vars[-1], name="lin2_activation"))
-    # output_vars.append(torch_fc_constraint(m, output_vars[-1], nn.lin3, name="lin3"))
-
-    # m.setObjective((output[0]-1.5)*(output[0]-1.5), GRB.MINIMIZE)
+    ## MIQCP objective function
     m.setObjective(output_vars[-1][0], GRB.MAXIMIZE)
 
     m.update()
-    m.write("model.mps")
+    m.write("model.mps") # Save model file
 
     # Define the callback function
     solution_count = 0
@@ -133,13 +118,12 @@ if __name__ == "__main__":
             A_sol = model.cbGetSolution(A)
             output_sol = model.cbGetSolution(output_vars[-1])
 
-            # batch = to_batch(torch.Tensor(X_sol).double(), torch.Tensor(A_sol.astype(int)))
-            # print("NN output given X:", nn.get_embedding_outputs(batch)[1].detach().numpy())
+            ## Sanity CHeck
             print("NN output given X:", nn.forwardXA(X_sol, A_sol))
-
             print("predicted output:", output_sol)
             save_graph(A=A_sol, X=X_sol, index=solution_count)
 
+    ## Start with a graph from the dataset
     m.NumStart = 1
     m.update()
     for s in range(m.NumStart):
@@ -162,36 +146,17 @@ if __name__ == "__main__":
     m.update()
     save_graph(A.Start, X.Start, 0)
 
-    # X_save = np.load("./X.npy")
-    # A_save = np.load("./A.npy")
-    # X.Start = X_save
-    # A.Start = A_save
-    # batch = to_batch(torch.Tensor(X_save).double(), torch.Tensor(A_save).double())
-    # all_outputs = nn.get_all_layer_outputs(batch)
-    # assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
-    # for var, output in zip(output_vars, all_outputs):
-    #     output = output.detach().numpy().squeeze()
-    #     assert var.shape == output.shape
-    #     var.Start = output
+    # # Tune
+    # print("Tuning")
+    # m.setParam("TuneTimeLimit", 3600*1)
+    # m.tune()
+    # m.getTuneResult(0).writeSolution("tune_report.txt")
+    # for i in range(m.tuneResultCount):
+    #     m.getTuneResult(i)
+    #     m.write('tune'+str(i)+'.prm')
+    # print("Done Tuning")
 
-    # m.addConstr(X == np.zeros(X.shape))
-    # batch = to_batch(torch.zeros(X.shape).double(), torch.zeros(A.shape).double())
-    # all_outputs = nn.get_all_layer_outputs(batch)
-    # assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
-    # for var, output in zip(output_vars, all_outputs):
-    #     output = output.detach().numpy().squeeze()
-    #     assert var.shape == output.shape
-    #     m.addConstr(var == output)
-
-    print("Tuning")
-    m.setParam("TuneTimeLimit", 3600*1)
-    m.tune()
-    m.getTuneResult(0).writeSolution("tune_report.txt")
-    for i in range(m.tuneResultCount):
-        m.getTuneResult(i)
-        m.write('tune'+str(i)+'.prm')
-    print("Done Tuning")
-
+    # # Use tuned parameters
     # m.read("./tune0.prm")
 
     m.setParam("TimeLimit", 3600*4)
@@ -199,23 +164,13 @@ if __name__ == "__main__":
 
     print("Status:", m.Status)
 
-    if m.Status in [3, 4]:
+    if m.Status in [3, 4]: # If the model is infeasible, see why
         m.computeIIS()
         m.write("model.ilp")
     else:
         save_graph(A.X, X.X, "Final")
-        # print("NN output given X", nn(x=torch.Tensor(X.X), edge_index=dense_to_sparse(torch.Tensor(A.X.astype(np.int64)))[0], batch=torch.zeros(10,dtype=torch.int64)))
         batch = to_batch(torch.Tensor(X.X).double(), torch.Tensor(A.X.astype(int)))
         print("NN output given X", nn.forwardXA(X.X, A.X))
-        # print("NN output given embedding", nn.classify(torch.Tensor(output_vars[5].X).double()))
         print("predicted output", output_vars[-1].X)
-
-        # a = nn.conv1(torch.Tensor(X.X), dense_to_sparse(torch.Tensor(A.X.astype(int)))[0]).detach().numpy()
-        # b = hidden.X.astype(np.float32)
-        # print((a==b).astype(int))
-        # idx = np.nonzero(1-(a==b).astype(int))
-        # print(a[idx], b[idx])
-        # print("ADJ MATRIX", A.X)
-        # print("X", X.X)
 
 print(time.strftime("\nEnd Time: %H:%M:%S", time.localtime()))

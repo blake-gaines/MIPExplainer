@@ -1,15 +1,12 @@
 import torch
-from torch_geometric.datasets import TUDataset
 import torch
 from sklearn.model_selection import train_test_split
-from torch_geometric.utils import to_dense_adj, dense_to_sparse
+from torch_geometric.utils import dense_to_sparse
 
 from torch.nn import Linear, ModuleDict, ReLU
-import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv
 from torch_geometric.data import Data
 from torch_geometric.nn.aggr import SumAggregation, MeanAggregation, MaxAggregation, Aggregation
-from torch_geometric.nn import global_mean_pool
 
 import torch
 from torch_geometric.datasets import TUDataset
@@ -30,14 +27,17 @@ class GNN(torch.nn.Module):
 
         self.layers = ModuleDict()
 
+        # Add convolutional layers
         self.layers["Conv_0"] = SAGEConv(in_channels, conv_features[0], aggr=conv_aggr)
         self.layers[f"Conv_0_Relu"] = ReLU()
         for i, shape in enumerate(zip(conv_features, conv_features[1:])):
             self.layers[f"Conv_{i+1}"] = SAGEConv(*shape, aggr=conv_aggr)
             self.layers[f"Conv_{i+1}_Relu"] = ReLU()
 
+        # Add Global Pooling Layer
         self.layers["Aggregation"] = self.aggr_classes[global_aggr]()
 
+        # Add FC Layers
         if len(lin_features) > 0:
             self.layers["Lin_0"] = Linear(conv_features[-1], lin_features[0])
             self.layers[f"Lin_0_Relu"] = ReLU()
@@ -48,11 +48,14 @@ class GNN(torch.nn.Module):
         self.layers[f"Lin_Output"] = Linear(lin_features[-1] if len(lin_features)>0 else conv_features[-1], out_channels)
         
     def fix_data(self, data):
+        # If the data does not have any batches, assign all the nodes to the same batch
         if data.batch is None: data.batch = torch.zeros(data.x.shape[0], dtype=torch.int64)
+        # If there are no edge weights, assign weight 1 to all edges
         if data.edge_weight is None: data.edge_weight = torch.ones(data.edge_index.shape[1])
         return data
     
     def forwardXA(self, X, A):
+        # Same as forward, but takes node features and adjacency matrix instead of a Data object
         X = torch.Tensor(X).double()
         A = torch.Tensor(A)
         edge_index, edge_weight = dense_to_sparse(A)
@@ -84,16 +87,14 @@ class GNN(torch.nn.Module):
 def train(model, train_loader, optimizer, criterion):
     model.train()
     total_loss = 0
-    for data in train_loader:  # Iterate in batches over the training dataset.
-        # out = model(data.x, data.edge_index, data.batch)  # Perform a single forward pass.
+    for data in train_loader:  # Iterate in batches over the training dataset
         out = model(data) # Perform a single forward pass
         loss = criterion(out, data.y)  # Compute the loss.
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
         loss.backward()  # Derive gradients.
         optimizer.step()  # Update parameters based on gradients.
         optimizer.zero_grad()  # Clear gradients.
         total_loss += float(loss)
-    return total_loss/len(train_loader)
+    return total_loss/len(train_loader) # Return average batch loss
 
 @torch.no_grad()
 def test(model, loader):
@@ -101,7 +102,6 @@ def test(model, loader):
 
     correct = 0
     for data in loader:  # Iterate in batches over the training/test dataset.
-        # out = model(data.x, data.edge_index, data.batch) 
         out = model(data) 
         pred = out.argmax(dim=1)  # Use the class with highest probability.
         correct += int((pred == data.y).sum())  # Check against ground-truth labels.
@@ -156,7 +156,6 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     if not load_model:
-        # model = GNN(in_channels=dataset.num_node_features, out_channels=dataset.num_classes, conv_type=conv_type, aggr="sum")
         model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4,4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         criterion = torch.nn.CrossEntropyLoss()
