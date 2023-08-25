@@ -3,7 +3,7 @@ from gnn import GNN
 import gurobipy as gp
 from gurobipy import GRB
 from invert import *
-from torch_geometric.utils import to_dense_adj, dense_to_sparse
+from torch_geometric.utils import to_dense_adj, dense_to_sparse, to_undirected
 from torch_geometric.data import Data, Batch
 import networkx as nx
 import os
@@ -25,10 +25,18 @@ if not os.path.isdir("solutions"): os.mkdir("solutions")
 
 with open("data/OurMotifs/dataset.pkl", "rb") as f:
     dataset = pickle.load(f)
-num_nodes = dataset[0].x.shape[0]
 num_node_features = dataset[0].x.shape[1]
-init_graphs = (d for d in dataset[:5])
-next(init_graphs)
+init_with_data = False
+init_index = 0
+num_nodes = 5
+if init_with_data:
+    print(f"Initializing with solution from graph {init_index}")
+    init_graph = dataset[init_index]
+else:
+    print(f"Initializing with dummy graph")
+    init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
+    init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
+    init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
 def torch_fc_constraint(model, X, layer, name=None):
     return add_fc_constraint(model, X, W=layer.get_parameter(f"weight").detach().numpy(), b=layer.get_parameter(f"bias").detach().numpy(), name=name)
@@ -44,23 +52,13 @@ def torch_sage_constraint(model, A, X, layer, name=None):
         lin_bias = layer.get_parameter(f"lin.bias").detach().numpy()
     return add_sage_constraint(model, A, X, lin_r_weight=lin_r_weight, lin_l_weight=lin_l_weight, lin_l_bias=lin_l_bias, lin_weight=lin_weight, lin_bias=lin_bias, project=layer.project, aggr=layer.aggr, name=name)
 
-def to_batch(X, A):
-    g = dict()
-    g["edge_index"], g["edge_weight"] = dense_to_sparse(A)
-    g["x"] = X
-    return Batch.from_data_list([Data(**g)])
-
-def doubler(G):
-    G.x = G.x.double()
-    if G.edge_weight is not None: G.edge_weight = G.edge_weight.to(torch.int64)
-
 def save_graph(A, X, index):
     np.save(f"solutions/X_{index}.npy", X)
     np.save(f"solutions/A_{index}.npy", A)
 
 if __name__ == "__main__":
     # model_path = "models/MUTAG_model.pth"
-    model_path = "models/OurMotifs_model.pth"
+    model_path = "models/OurMotifs_model_mean.pth"
     nn = torch.load(model_path)
     nn.eval()
     nn.double()
@@ -74,9 +72,9 @@ if __name__ == "__main__":
     m.update()
 
     # X = m.addMVar((10, 7), lb=-float("inf"), ub=float("inf"), name="X")
-    m.addConstr(gp.quicksum(A) >= 1) # Nodes need an edge. Need this for SAGEConv inverse to work
+    m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work
     force_undirected(m, A) # Generate an undirected graph
-    m.addConstr(gp.quicksum(X.T) == 1) # REMOVE for non-categorical features
+    m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
 
     ## Continuous Alternatives
     # A = m.addMVar((10, 10), lb=-5, ub=5, name="A")
@@ -100,7 +98,7 @@ if __name__ == "__main__":
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
 
     ## MIQCP objective function
-    m.setObjective(output_vars[-1][0], GRB.MAXIMIZE)
+    m.setObjective(output_vars[-1][1], GRB.MAXIMIZE)
 
     m.update()
     m.write("model.mps") # Save model file
@@ -118,46 +116,43 @@ if __name__ == "__main__":
             A_sol = model.cbGetSolution(A)
             output_sol = model.cbGetSolution(output_vars[-1])
 
-            ## Sanity CHeck
+            ## Sanity Check
             print("NN output given X:", nn.forwardXA(X_sol, A_sol))
             print("predicted output:", output_sol)
             save_graph(A=A_sol, X=X_sol, index=solution_count)
 
     ## Start with a graph from the dataset
     m.NumStart = 1
-    m.update()
-    for s in range(m.NumStart):
-        m.params.StartNumber = s
-        # X.Start = np.zeros(X.shape)
-        # A.Start = np.zeros(A.shape)
-        # batch = to_batch(torch.zeros(X.shape).double(), torch.zeros(A.shape).double())
-        G = next(init_graphs)
-        doubler(G)
-        print(X.shape, G.x.shape)
-        # X.Start = G.x.detach().numpy()
-        A.Start = to_dense_adj(G.edge_index).detach().numpy().squeeze()
-        batch = Batch.from_data_list([G])
-        all_outputs = nn.get_all_layer_outputs(batch)
-        assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
-        for var, output in zip(output_vars, all_outputs):
-            output = output[1].detach().numpy().squeeze()
-            assert var.shape == output.shape
-            var.Start = output
+    # m.update()
+    # for s in range(m.NumStart):
+    #     m.params.StartNumber = s
+    init_graph.x = init_graph.x.double()
+    init_graph.edge_index = to_undirected(init_graph.edge_index)
+    # X.Start = G.x.detach().numpy()
+    A.Start = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
+    all_outputs = nn.get_all_layer_outputs(init_graph)
+    assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
+    for var, name_output in zip(output_vars, all_outputs):
+        layer_name = name_output[0]
+        output = name_output[1].detach().numpy().squeeze()
+        assert var.shape == output.shape
+        var.Start = output
+        # if layer_name == "Aggregation":
+        #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
     save_graph(A.Start, X.Start, 0)
 
+    # Use tuned parameters
+    m.read("./tune0.prm")
+
     # # Tune
     # print("Tuning")
-    # m.setParam("TuneTimeLimit", 3600*1)
+    # m.setParam("TuneTimeLimit", 3600*20)
     # m.tune()
-    # m.getTuneResult(0).writeSolution("tune_report.txt")
     # for i in range(m.tuneResultCount):
     #     m.getTuneResult(i)
     #     m.write('tune'+str(i)+'.prm')
     # print("Done Tuning")
-
-    # # Use tuned parameters
-    # m.read("./tune0.prm")
 
     m.setParam("TimeLimit", 3600*4)
     m.optimize(callback)
@@ -169,7 +164,6 @@ if __name__ == "__main__":
         m.write("model.ilp")
     else:
         save_graph(A.X, X.X, "Final")
-        batch = to_batch(torch.Tensor(X.X).double(), torch.Tensor(A.X.astype(int)))
         print("NN output given X", nn.forwardXA(X.X, A.X))
         print("predicted output", output_vars[-1].X)
 

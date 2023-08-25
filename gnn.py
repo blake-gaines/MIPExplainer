@@ -117,11 +117,11 @@ if __name__ == "__main__":
     num_explanations = 3
     conv_type = "sage"
     global_aggr = "sum"
-    conv_aggr = "sum"
+    conv_aggr = "mean"
 
     load_model = False
     # model_path = "models/MUTAG_model.pth"
-    model_path = "models/OurMotifs_model.pth"
+    model_path = "models/OurMotifs_model_mean.pth"
 
     log_run = False
 

@@ -2,8 +2,8 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
-M = 128
-big_number = 128
+M = 256
+big_number = 256
 
 def add_fc_constraint(model, X, W, b, name=None):
     ts = model.addMVar((W.shape[0],), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
@@ -21,8 +21,8 @@ def add_self_loops(model, A):
 
 def force_undirected(model, A):
     for i in range(A.shape[0]):
-        for j in range(A.shape[1]):
-            model.addConstr(A[i][j] == A[j][i])
+        for j in range(i, A.shape[1]):
+            model.addConstr(A[i][j] == A[j][i], name=f"undirected_{i}_{j}")
 
 # def add_relu_constraint(model, X, name=None):
 #     activations = model.addMVar(X.shape, name=name)
