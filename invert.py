@@ -67,3 +67,17 @@ def global_mean_pool(model, X, name=None):
     averages = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages
+
+def torch_fc_constraint(model, X, layer, name=None):
+    return add_fc_constraint(model, X, W=layer.get_parameter(f"weight").detach().numpy(), b=layer.get_parameter(f"bias").detach().numpy(), name=name)
+
+def torch_sage_constraint(model, A, X, layer, name=None):
+    # TODO: Cleanup
+    lin_r_weight = layer.get_parameter(f"lin_r.weight").detach().numpy()
+    lin_l_weight = layer.get_parameter(f"lin_l.weight").detach().numpy()
+    lin_l_bias = layer.get_parameter(f"lin_l.bias").detach().numpy()
+    lin_weight, lin_bias = None, None
+    if layer.project and hasattr(layer, 'lin'):
+        lin_weight = layer.get_parameter(f"lin.weight").detach().numpy()
+        lin_bias = layer.get_parameter(f"lin.bias").detach().numpy()
+    return add_sage_constraint(model, A, X, lin_r_weight=lin_r_weight, lin_l_weight=lin_l_weight, lin_l_bias=lin_l_bias, lin_weight=lin_weight, lin_bias=lin_bias, project=layer.project, aggr=layer.aggr, name=name)
