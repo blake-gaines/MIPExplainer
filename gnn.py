@@ -3,7 +3,7 @@ import torch
 from sklearn.model_selection import train_test_split
 from torch_geometric.utils import dense_to_sparse
 
-from torch.nn import Linear, ModuleDict, ReLU
+from torch.nn import Linear, ModuleDict, ReLU, Softmax
 from torch_geometric.nn import SAGEConv
 from torch_geometric.data import Data
 from torch_geometric.nn.aggr import SumAggregation, MeanAggregation, MaxAggregation, Aggregation
@@ -45,7 +45,7 @@ class GNN(torch.nn.Module):
             for i, shape in enumerate(zip(lin_features, lin_features[1:])):
                 self.layers[f"Lin_{i+1}"] = Linear(*shape)
                 self.layers[f"Lin{i+1}Relu"] = ReLU()
-        self.layers[f"Lin_Output"] = Linear(lin_features[-1] if len(lin_features)>0 else conv_features[-1], out_channels)
+        self.layers[f"Output"] = Linear(lin_features[-1] if len(lin_features)>0 else conv_features[-1], out_channels)
         
     def fix_data(self, data):
         # If the data does not have any batches, assign all the nodes to the same batch
@@ -112,16 +112,16 @@ if __name__ == "__main__":
 
     if not os.path.isdir("models"): os.mkdir("models")
 
-    epochs = 100
+    epochs = 200
     num_inits = 5
     num_explanations = 3
     conv_type = "sage"
-    global_aggr = "sum"
+    global_aggr = "mean"
     conv_aggr = "mean"
 
     load_model = False
-    # model_path = "models/MUTAG_model.pth"
-    model_path = "models/OurMotifs_model_mean.pth"
+    model_path = "models/MUTAG_model.pth"
+    # model_path = "models/OurMotifs_model_mean.pth"
 
     log_run = False
 
@@ -129,11 +129,9 @@ if __name__ == "__main__":
     # from torch_geometric.datasets.graph_generator import BAGraph
     # from torch_geometric.datasets.motif_generator import HouseMotif
     # from torch_geometric.datasets.motif_generator import CycleMotif
-
-    # dataset = TUDataset(root="data/TUDataset", name="MUTAG")
-    # print(dataset[0].x)
-    with open("data/OurMotifs/dataset.pkl", "rb") as f:
-        dataset = pickle.load(f)
+    dataset = TUDataset(root="data/TUDataset", name="MUTAG")
+    # with open("data/OurMotifs/dataset.pkl", "rb") as f:
+    #     dataset = pickle.load(f)
 
     print()
     print(f'Dataset: {dataset}:')
@@ -143,7 +141,8 @@ if __name__ == "__main__":
     # print(f'Number of classes: {dataset.num_classes}')
 
     # train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=dataset.y, random_state=7)
-    ys = [d.y for d in dataset]
+    ys = [int(d.y) for d in dataset]
+    print("YS", ys)
     num_classes = len(set(ys))
     num_node_features = dataset[0].x.shape[1]
     train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=ys, random_state=7)
@@ -156,7 +155,7 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     if not load_model:
-        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4,4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[32, 32, 32], lin_features=[32], global_aggr=global_aggr, conv_aggr=conv_aggr)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         criterion = torch.nn.CrossEntropyLoss()
         print(model)
