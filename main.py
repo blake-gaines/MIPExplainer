@@ -14,7 +14,8 @@ import time
 from torch_geometric.datasets import TUDataset
 import pickle
 from collections import OrderedDict
-from utils import save_graph, get_average_phi
+from utils import *
+import wandb
 
 print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
@@ -49,7 +50,24 @@ if __name__ == "__main__":
 
     phi = get_average_phi(dataset, nn, "Aggregation")
 
+    max_class = 1
+    output_file = "./solutions_l2.pkl"
+
     print(nn)
+
+    wandb.login()
+    wandb.init(
+        # Set the project where this run will be logged
+        project="GNN-Inverter", 
+        # name=f"test_run", 
+        # Track hyperparameters and run metadata
+        config={
+        "learning_rate": 0.02,
+        "architecture": str(nn),
+        "dataset": str(dataset),
+        "max_class": max_class,
+        output_file: output_file
+    })
 
     m = gp.Model("GNN Inverse")
 
@@ -66,8 +84,6 @@ if __name__ == "__main__":
     #     m.addConstr(gp.quicksum(A[i][j+1] for j in range(i,num_nodes-1)) >= 1,name="node_i_connected")
 
     # X = m.addMVar((10, 7), lb=-5, ub=5, name="x")
-
-    max_class = 1
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -89,7 +105,8 @@ if __name__ == "__main__":
         
     # These constraints are lower bounds, needed because quadratic equality constraints are non-convex
     embedding = output_vars["Aggregation"]
-    embedding_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
+    # embedding_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
+    embedding_similarity = m.addVar(lb=0, name="embedding_similarity")
     # embedding_similarity = 0
 
     # L2 Similarity
@@ -99,6 +116,7 @@ if __name__ == "__main__":
 
     # # L2 Similarity
     # m.addConstr(embedding_similarity*embedding_similarity >= gp.quicksum((embedding - phi[max_class])*(embedding - phi[max_class])), name="embedding_similarity_l2")
+    m.addConstr(embedding_similarity >= gp.quicksum((embedding - phi[max_class])*(embedding - phi[max_class])), name="embedding_squared_l2")
 
     # Cosine Similarity
     # embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
@@ -107,41 +125,56 @@ if __name__ == "__main__":
     # m.addConstr(gp.quicksum(embedding*phi) >= embedding_magnitude*phi_magnitude*embedding_similarity, name="embedding_similarity_cosine")
 
     # Cosine Similarity
-    embedding_magnitude = m.addVar(lb=0, name="embedding_magnitude")
-    m.addConstr(embedding_magnitude*embedding_magnitude >= gp.quicksum(embedding*embedding), name="embedding_magnitude_constraint")
-    m.addConstr(np.linalg.norm(phi[max_class])*embedding_magnitude*embedding_similarity <= gp.quicksum(embedding*phi), name="embedding_similarity_cosine")
+    # embedding_magnitude = m.addVar(lb=0, name="embedding_magnitude")
+    # m.addConstr(embedding_magnitude*embedding_magnitude >= gp.quicksum(embedding*embedding), name="embedding_magnitude_constraint")
+    # m.addConstr(np.linalg.norm(phi[max_class])*embedding_magnitude*embedding_similarity <= gp.quicksum(embedding*phi), name="embedding_similarity_cosine")
             
-
     ## MIQCP objective function
-    m.setObjective(output_vars["Output"][max_class]+10*embedding_similarity, GRB.MAXIMIZE)
+    m.setObjective(output_vars["Output"][max_class]-1*embedding_similarity, GRB.MAXIMIZE)
+    # m.setObjective(output_vars["Output"][max_class]+gp.quicksum(embedding*phi), GRB.MAXIMIZE)
 
     m.update()
     m.write("model.mps") # Save model file
 
     # Define the callback function
-    solution_count = 0
+    solutions = []
     def callback(model, where):
-        global A, X, solution_count
+        global A, X, solutions
         if where == GRB.Callback.MIPSOL:
             # A new incumbent solution has been found
-            print(f"New incumbent solution found (ID {solution_count}) Objective value: {model.cbGet(GRB.Callback.MIPSOL_OBJ)}")
+            print(f"New incumbent solution found (ID {len(solutions)}) Objective value: {model.cbGet(GRB.Callback.MIPSOL_OBJ)}")
 
-            solution_count += 1
             X_sol = model.cbGetSolution(X)
             A_sol = model.cbGetSolution(A)
             output_var_value = model.cbGetSolution(output_vars["Output"])
 
             ## Sanity Check
-            print("NN output given X:", nn.forwardXA(X_sol, A_sol))
+            sol_output = nn.forwardXA(X_sol, A_sol).detach().numpy()
+            print("NN output given X:", sol_output)
             print("predicted output:", output_var_value)
 
             embedding_var_value = model.cbGetSolution(embedding)
+            # sol_similarity = np.dot(embedding_var_value, phi[max_class])/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi[max_class]))
+            sol_similarity = sum((embedding_var_value - phi[max_class])*(embedding_var_value - phi[max_class]))
+            # print("Solution Similarity:", sol_similarity)
+            
             embedding_sim_var_value = model.cbGetSolution(embedding_similarity)
-            embedding_magnitude_var_value = model.cbGetSolution(embedding_similarity)
-            print("Predicted Embedding Magnitude vs Actual:", embedding_magnitude_var_value, np.linalg.norm(embedding_var_value))
-            print("Predicted Embedding Similarity vs Actual:", embedding_sim_var_value, np.dot(embedding_var_value, phi)/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi)))
+            # sol_magnitude = np.linalg.norm(embedding_var_value)
+            # embedding_magnitude_var_value = model.cbGetSolution(embedding_magnitude)
+            # print("Predicted Embedding Magnitude vs Actual:", embedding_magnitude_var_value, sol_magnitude)
+            print("Predicted Embedding Similarity vs Actual:", embedding_sim_var_value, sol_similarity)
 
-            save_graph(A=A_sol, X=X_sol, index=solution_count)
+            # save_graph(A=A_sol, X=X_sol, index=solution_count)
+            solutions.append({
+                "X": X_sol,
+                "A": A_sol,
+                "Output": sol_output,
+                "Similarity": sol_similarity,
+                "time": time.time()
+            })
+
+            with open(output_file, "wb") as f:
+                pickle.dump(solutions, f)
 
     ## Start with a graph from the dataset
     m.NumStart = 1
@@ -162,7 +195,7 @@ if __name__ == "__main__":
         # if layer_name == "Aggregation":
         #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
-    save_graph(A.Start, X.Start, 0)
+    # save_graph(A.Start, X.Start, 0)
 
     # Use tuned parameters
     m.read("./tune0.prm")
@@ -176,9 +209,12 @@ if __name__ == "__main__":
     #     m.write('tune'+str(i)+'.prm')
     # print("Done Tuning")
 
-    m.setParam("TimeLimit", 3600*8)
-    m.setParam("NonConvex", 2)
+    m.setParam("TimeLimit", 3600*14)
+    # m.setParam("NonConvex", 2)
     m.optimize(callback)
+
+    with open(output_file, "wb") as f:
+        pickle.dump(solutions, f)
 
     print("Status:", m.Status)
 
@@ -186,7 +222,7 @@ if __name__ == "__main__":
         m.computeIIS()
         m.write("model.ilp")
     else:
-        save_graph(A.X, X.X, "Final")
+        # save_graph(A.X, X.X, "Final")
         print("NN output given X", nn.forwardXA(X.X, A.X))
         print("predicted output", output_vars["Output"].X)
 
