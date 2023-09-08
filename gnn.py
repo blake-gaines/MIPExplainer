@@ -112,7 +112,7 @@ if __name__ == "__main__":
 
     if not os.path.isdir("models"): os.mkdir("models")
 
-    epochs = 200
+    epochs = 40
     num_inits = 5
     num_explanations = 3
     conv_type = "sage"
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     conv_aggr = "mean"
 
     load_model = False
-    model_path = "models/MUTAG_model.pth"
+    model_path = "models/Is_Acyclic_model.pth"
     # model_path = "models/OurMotifs_model_mean.pth"
 
     log_run = False
@@ -129,12 +129,13 @@ if __name__ == "__main__":
     # from torch_geometric.datasets.graph_generator import BAGraph
     # from torch_geometric.datasets.motif_generator import HouseMotif
     # from torch_geometric.datasets.motif_generator import CycleMotif
-    dataset = TUDataset(root="data/TUDataset", name="MUTAG")
+    # dataset = TUDataset(root="data/TUDataset", name="MUTAG")
     # with open("data/OurMotifs/dataset.pkl", "rb") as f:
-    #     dataset = pickle.load(f)
+    with open("data/Is_Acyclic/dataset.pkl", "rb") as f:
+        dataset = pickle.load(f)
 
     print()
-    print(f'Dataset: {dataset}:')
+    print(f'Dataset: {str(dataset)[:20]}:')
     print('====================')
     print(f'Number of graphs: {len(dataset)}')
     # print(f'Number of features: {dataset.num_features}')
@@ -142,7 +143,7 @@ if __name__ == "__main__":
 
     # train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=dataset.y, random_state=7)
     ys = [int(d.y) for d in dataset]
-    print("YS", ys)
+    print("YS", ys[:10])
     num_classes = len(set(ys))
     num_node_features = dataset[0].x.shape[1]
     train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=ys, random_state=7)
@@ -155,7 +156,8 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     if not load_model:
-        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[32, 32, 32], lin_features=[32], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[32, 32, 32], lin_features=[32], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4, 4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         criterion = torch.nn.CrossEntropyLoss()
         print(model)

@@ -9,3 +9,4 @@ solutions/
 figures/
 *.prm
 *.pkl
+wandb/

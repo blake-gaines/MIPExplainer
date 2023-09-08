@@ -16,23 +16,28 @@ import pickle
 from collections import OrderedDict
 from utils import *
 import wandb
+import matplotlib.pyplot as plt
+import sys
+
+log_run = True
 
 print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-model_path = "models/MUTAG_model.pth"
+# model_path = "models/MUTAG_model.pth"
+# dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+
 # model_path = "models/OurMotifs_model_mean.pth"
+# with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
-dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
-# num_node_features = dataset.num_node_features
+model_path = "models/Is_Acyclic_model.pth"
+with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
-# with open("data/OurMotifs/dataset.pkl", "rb") as f:
-#     dataset = pickle.load(f)
 num_node_features = dataset[0].x.shape[1]
-init_with_data = True
+init_with_data = False
 init_index = 0
-num_nodes = 5
+num_nodes = 10
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
@@ -40,7 +45,8 @@ if init_with_data:
 else:
     print(f"Initializing with dummy graph")
     init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
-    init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
+    # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
+    init_graph_adj = torch.eye(num_nodes)
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
 if __name__ == "__main__":
@@ -51,39 +57,50 @@ if __name__ == "__main__":
     phi = get_average_phi(dataset, nn, "Aggregation")
 
     max_class = 1
-    output_file = "./solutions_l2.pkl"
+    output_file = "./acyclic_solutions_l2_noinit.pkl"
+    sim_weight = 0.1
 
     print(nn)
 
-    wandb.login()
-    wandb.init(
-        # Set the project where this run will be logged
-        project="GNN-Inverter", 
-        # name=f"test_run", 
-        # Track hyperparameters and run metadata
-        config={
-        "learning_rate": 0.02,
-        "architecture": str(nn),
-        "dataset": str(dataset),
-        "max_class": max_class,
-        output_file: output_file
-    })
+    if log_run:
+        wandb.login()
+        wandb.init(
+            project="GNN-Inverter", 
+            # Track hyperparameters and run metadata
+            config={
+            "learning_rate": 0.02,
+            "architecture": str(nn),
+            "dataset": str(dataset),
+            "max_class": max_class,
+            "output_file": output_file,
+            "sim_weight": sim_weight,
+            "M": M,
+            "big_number": big_number,
+            "init_with_data": init_with_data,
+            "model_path": model_path,  
+        })
+        wandb.save("model.mps", policy="end")
+        wandb.run.log_code(".")
 
     m = gp.Model("GNN Inverse")
 
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
-    X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
+
+    # X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
+    # m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
+    X = m.addMVar((num_nodes, num_node_features), lb=0, ub=10, name="X", vtype=GRB.INTEGER)
+    print("AHHHH", X.shape, gp.quicksum(A)[:, np.newaxis].shape)
+    m.addConstr(X == gp.quicksum(A)[:, np.newaxis])
+
     m.update()
 
     m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
     force_undirected(m, A) # Generate an undirected graph
-    m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
+    remove_self_loops(m, A) # Remove self loops
 
     # # Impose some ordering to keep graph connected
     # for i in range(num_nodes):
     #     m.addConstr(gp.quicksum(A[i][j+1] for j in range(i,num_nodes-1)) >= 1,name="node_i_connected")
-
-    # X = m.addMVar((10, 7), lb=-5, ub=5, name="x")
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -115,8 +132,8 @@ if __name__ == "__main__":
     # m.addGenConstrNorm(embedding_similarity, embedding_phi_diffs, which=2, name="embedding_similarity_pnorm")
 
     # # L2 Similarity
-    # m.addConstr(embedding_similarity*embedding_similarity >= gp.quicksum((embedding - phi[max_class])*(embedding - phi[max_class])), name="embedding_similarity_l2")
-    m.addConstr(embedding_similarity >= gp.quicksum((embedding - phi[max_class])*(embedding - phi[max_class])), name="embedding_squared_l2")
+    # m.addConstr(embedding_similarity*embedding_similarity >= gp.quicksum((embedding - phi[max_class])*(embedding - phi[max_class])), name="embedding_l2")
+    m.addConstr(embedding_similarity >= gp.quicksum((embedding[0] - phi[max_class])*(embedding[0] - phi[max_class])), name="embedding_squared_l2")
 
     # Cosine Similarity
     # embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
@@ -130,7 +147,7 @@ if __name__ == "__main__":
     # m.addConstr(np.linalg.norm(phi[max_class])*embedding_magnitude*embedding_similarity <= gp.quicksum(embedding*phi), name="embedding_similarity_cosine")
             
     ## MIQCP objective function
-    m.setObjective(output_vars["Output"][max_class]-1*embedding_similarity, GRB.MAXIMIZE)
+    m.setObjective(output_vars["Output"][0, max_class]-sim_weight*embedding_similarity, GRB.MAXIMIZE)
     # m.setObjective(output_vars["Output"][max_class]+gp.quicksum(embedding*phi), GRB.MAXIMIZE)
 
     m.update()
@@ -150,12 +167,12 @@ if __name__ == "__main__":
 
             ## Sanity Check
             sol_output = nn.forwardXA(X_sol, A_sol).detach().numpy()
-            print("NN output given X:", sol_output)
-            print("predicted output:", output_var_value)
+            print("NN output given X:", sol_output.squeeze())
+            print("predicted output:", output_var_value.squeeze())
 
             embedding_var_value = model.cbGetSolution(embedding)
             # sol_similarity = np.dot(embedding_var_value, phi[max_class])/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi[max_class]))
-            sol_similarity = sum((embedding_var_value - phi[max_class])*(embedding_var_value - phi[max_class]))
+            sol_similarity = sum((embedding_var_value[0] - phi[max_class])*(embedding_var_value[0] - phi[max_class]))
             # print("Solution Similarity:", sol_similarity)
             
             embedding_sim_var_value = model.cbGetSolution(embedding_similarity)
@@ -170,8 +187,18 @@ if __name__ == "__main__":
                 "A": A_sol,
                 "Output": sol_output,
                 "Similarity": sol_similarity,
-                "time": time.time()
+                "time": time.time(),
+                "Objective Value": model.cbGet(GRB.Callback.MIPSOL_OBJ),
+                "Upper Bound": model.cbGet(GRB.Callback.MIPSOL_OBJBND),
+
             })
+
+            if log_run:
+                fig, _ = draw_graph(A_sol, X_sol)
+                wandb.log(solutions[-1], commit=False)
+                wandb.log({f"Output Logit {i}": sol_output[0, i] for i in range(sol_output.shape[1])}, commit=False)
+                wandb.log({"fig": wandb.Image(fig)})
+                plt.close()
 
             with open(output_file, "wb") as f:
                 pickle.dump(solutions, f)
@@ -189,13 +216,12 @@ if __name__ == "__main__":
     assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
     for var, name_output in zip(output_vars.values(), all_outputs):
         layer_name = name_output[0]
-        output = name_output[1].detach().numpy().squeeze()
-        assert var.shape == output.shape
+        output = name_output[1].detach().numpy()
+        assert var.shape == output.shape, (layer_name, var.shape, output.shape)
         var.Start = output
         # if layer_name == "Aggregation":
         #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
-    # save_graph(A.Start, X.Start, 0)
 
     # Use tuned parameters
     m.read("./tune0.prm")
@@ -209,8 +235,11 @@ if __name__ == "__main__":
     #     m.write('tune'+str(i)+'.prm')
     # print("Done Tuning")
 
-    m.setParam("TimeLimit", 3600*14)
+    m.setParam("TimeLimit", 3600*24)
+    m.setParam("Presolve", 2)
+    # m.setParam("PreQLinearize", 1) # TODO: Chose between 1 and 2
     # m.setParam("NonConvex", 2)
+    m.write("model.mps") # Save model file
     m.optimize(callback)
 
     with open(output_file, "wb") as f:

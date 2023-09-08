@@ -2,13 +2,13 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
-M = 256
-big_number = 256
+M = 1024
+big_number = 1024
 
 def add_fc_constraint(model, X, W, b, name=None):
     ts = model.addMVar((W.shape[0],), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
     model.addConstr(ts==X@W.T + b, name=f"{name}_output_constraint" if name else None)
-    return ts
+    return ts[np.newaxis, :]
 
 def add_gcn_constraint(model, A, X, W, b, name=None): # Unnormalized Adjacency Matrix
     ts = model.addMVar((A.shape[0], W.shape[1]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
@@ -65,12 +65,12 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None
 def global_add_pool(model, X, name=None):
     sums = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
     model.addConstr(sums == gp.quicksum(X), name=f"{name}_constraint" if name else None)
-    return sums
+    return sums[np.newaxis, :]
 
 def global_mean_pool(model, X, name=None):
     averages = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
-    return averages
+    return averages[np.newaxis, :]
 
 def torch_fc_constraint(model, X, layer, name=None):
     return add_fc_constraint(model, X, W=layer.get_parameter(f"weight").detach().numpy(), b=layer.get_parameter(f"bias").detach().numpy(), name=name)
