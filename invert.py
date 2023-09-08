@@ -17,11 +17,11 @@ def add_gcn_constraint(model, A, X, W, b, name=None): # Unnormalized Adjacency M
 
 def add_self_loops(model, A):
     for i in range(A.shape[0]):
-        model.addConstr(A[i][i] == 1)
+        model.addConstr(A[i][i] == 1, name=f"self_loops_node_{i}")
 
 def remove_self_loops(model, A):
     for i in range(A.shape[0]):
-        model.addConstr(A[i][i] == 0)
+        model.addConstr(A[i][i] == 0, name=f"no_self_loops_node_{i}")
 
 def force_undirected(model, A):
     for i in range(A.shape[0]):

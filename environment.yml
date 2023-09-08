@@ -1,0 +1,17 @@
+name: InvertGNNs
+channels:
+  - https://conda.anaconda.org/gurobi
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pandas
+  - gurobi
+  - plotly
+  - networkx
+  - tqdm
+  - ipykernel
+  - scipy
+  - pyg
+  - ipywidgets
+prefix: /opt/anaconda3/envs/gurobi

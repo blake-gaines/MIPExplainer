@@ -25,14 +25,18 @@ print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-# model_path = "models/MUTAG_model.pth"
-# dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+model_path = "models/MUTAG_model.pth"
+dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
 # model_path = "models/OurMotifs_model_mean.pth"
 # with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
-model_path = "models/Is_Acyclic_model.pth"
-with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+# model_path = "models/Is_Acyclic_model.pth"
+# with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+
+max_class = 1
+output_file = "./solutions.pkl"
+sim_weight = 10
 
 num_node_features = dataset[0].x.shape[1]
 init_with_data = False
@@ -56,10 +60,6 @@ if __name__ == "__main__":
 
     phi = get_average_phi(dataset, nn, "Aggregation")
 
-    max_class = 1
-    output_file = "./acyclic_solutions_l2_noinit.pkl"
-    sim_weight = 0.1
-
     print(nn)
 
     if log_run:
@@ -80,23 +80,22 @@ if __name__ == "__main__":
             "model_path": model_path,  
         })
         wandb.save("model.mps", policy="end")
+        wandb.save("solutions.pkl", policy="end")
         wandb.run.log_code(".")
 
     m = gp.Model("GNN Inverse")
 
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
 
-    # X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
-    # m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
-    X = m.addMVar((num_nodes, num_node_features), lb=0, ub=10, name="X", vtype=GRB.INTEGER)
-    print("AHHHH", X.shape, gp.quicksum(A)[:, np.newaxis].shape)
-    m.addConstr(X == gp.quicksum(A)[:, np.newaxis])
+    X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
+    m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
+    # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=10, name="X", vtype=GRB.INTEGER)
+    # m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
 
     m.update()
 
     m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
     force_undirected(m, A) # Generate an undirected graph
-    remove_self_loops(m, A) # Remove self loops
 
     # # Impose some ordering to keep graph connected
     # for i in range(num_nodes):
@@ -121,33 +120,24 @@ if __name__ == "__main__":
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
         
     # These constraints are lower bounds, needed because quadratic equality constraints are non-convex
-    embedding = output_vars["Aggregation"]
-    # embedding_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
-    embedding_similarity = m.addVar(lb=0, name="embedding_similarity")
+    embedding = output_vars["Aggregation"][0]
+    embedding_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
+    # embedding_similarity = m.addVar(lb=0, name="embedding_similarity")
     # embedding_similarity = 0
 
-    # L2 Similarity
-    # embedding_phi_diffs = m.addMVar(embedding.shape, lb=-GRB.INFINITY, ub=GRB.INFINITY, name="embedding_phi_diffs")
-    # m.addConstr(embedding_phi_diffs == embedding - phi[max_class])
-    # m.addGenConstrNorm(embedding_similarity, embedding_phi_diffs, which=2, name="embedding_similarity_pnorm")
-
-    # # L2 Similarity
-    # m.addConstr(embedding_similarity*embedding_similarity >= gp.quicksum((embedding - phi[max_class])*(embedding - phi[max_class])), name="embedding_l2")
-    m.addConstr(embedding_similarity >= gp.quicksum((embedding[0] - phi[max_class])*(embedding[0] - phi[max_class])), name="embedding_squared_l2")
-
     # Cosine Similarity
-    # embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
-    # phi_magnitude = np.linalg.norm(phi[max_class])
-    # m.addGenConstrNorm(embedding_magnitude, output_vars["Aggregation"], which=2, name="embedding_magnitude_constraint")
-    # m.addConstr(gp.quicksum(embedding*phi) >= embedding_magnitude*phi_magnitude*embedding_similarity, name="embedding_similarity_cosine")
+    embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
+    phi_magnitude = np.linalg.norm(phi[max_class])
+    m.addGenConstrNorm(embedding_magnitude, embedding, which=2, name="embedding_magnitude_constraint")
+    m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*embedding_similarity, name="embedding_similarity_cosine")
 
     # Cosine Similarity
     # embedding_magnitude = m.addVar(lb=0, name="embedding_magnitude")
-    # m.addConstr(embedding_magnitude*embedding_magnitude >= gp.quicksum(embedding*embedding), name="embedding_magnitude_constraint")
-    # m.addConstr(np.linalg.norm(phi[max_class])*embedding_magnitude*embedding_similarity <= gp.quicksum(embedding*phi), name="embedding_similarity_cosine")
+    # m.addConstr(embedding_magnitude*embedding_magnitude == gp.quicksum(embedding*embedding), name="embedding_magnitude_constraint")
+    # m.addConstr(np.linalg.norm(phi[max_class])*embedding_magnitude*embedding_similarity == gp.quicksum(embedding*phi), name="embedding_similarity_cosine")
             
     ## MIQCP objective function
-    m.setObjective(output_vars["Output"][0, max_class]-sim_weight*embedding_similarity, GRB.MAXIMIZE)
+    m.setObjective(output_vars["Output"][0, max_class]+sim_weight*embedding_similarity, GRB.MAXIMIZE)
     # m.setObjective(output_vars["Output"][max_class]+gp.quicksum(embedding*phi), GRB.MAXIMIZE)
 
     m.update()
@@ -171,15 +161,16 @@ if __name__ == "__main__":
             print("predicted output:", output_var_value.squeeze())
 
             embedding_var_value = model.cbGetSolution(embedding)
-            # sol_similarity = np.dot(embedding_var_value, phi[max_class])/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi[max_class]))
-            sol_similarity = sum((embedding_var_value[0] - phi[max_class])*(embedding_var_value[0] - phi[max_class]))
+            sol_similarity = np.dot(embedding_var_value, phi[max_class])/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi[max_class]))
+            # sol_similarity = sum((embedding_var_value[0] - phi[max_class])*(embedding_var_value[0] - phi[max_class]))
             # print("Solution Similarity:", sol_similarity)
             
-            embedding_sim_var_value = model.cbGetSolution(embedding_similarity)
+            # embedding_sim_var_value = model.cbGetSolution(embedding_similarity)
+            # print("Predicted Embedding Similarity vs Actual:", embedding_sim_var_value, sol_similarity)
+            
             # sol_magnitude = np.linalg.norm(embedding_var_value)
             # embedding_magnitude_var_value = model.cbGetSolution(embedding_magnitude)
             # print("Predicted Embedding Magnitude vs Actual:", embedding_magnitude_var_value, sol_magnitude)
-            print("Predicted Embedding Similarity vs Actual:", embedding_sim_var_value, sol_similarity)
 
             # save_graph(A=A_sol, X=X_sol, index=solution_count)
             solutions.append({
@@ -219,7 +210,8 @@ if __name__ == "__main__":
         output = name_output[1].detach().numpy()
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
         var.Start = output
-        # if layer_name == "Aggregation":
+        if layer_name == "Aggregation":
+            embedding_similarity.Start = np.dot(output[0], phi[max_class])/(np.linalg.norm(output[0])*np.linalg.norm(phi[max_class]))
         #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
 
@@ -238,7 +230,7 @@ if __name__ == "__main__":
     m.setParam("TimeLimit", 3600*24)
     m.setParam("Presolve", 2)
     # m.setParam("PreQLinearize", 1) # TODO: Chose between 1 and 2
-    # m.setParam("NonConvex", 2)
+    m.setParam("NonConvex", 2)
     m.write("model.mps") # Save model file
     m.optimize(callback)
 
@@ -251,7 +243,6 @@ if __name__ == "__main__":
         m.computeIIS()
         m.write("model.ilp")
     else:
-        # save_graph(A.X, X.X, "Final")
         print("NN output given X", nn.forwardXA(X.X, A.X))
         print("predicted output", output_vars["Output"].X)
 
