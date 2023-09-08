@@ -19,6 +19,10 @@ def add_self_loops(model, A):
     for i in range(A.shape[0]):
         model.addConstr(A[i][i] == 1)
 
+def remove_self_loops(model, A):
+    for i in range(A.shape[0]):
+        model.addConstr(A[i][i] == 0)
+
 def force_undirected(model, A):
     for i in range(A.shape[0]):
         for j in range(i, A.shape[1]):
