@@ -10,3 +10,4 @@ figures/
 *.prm
 *.pkl
 wandb/
+*.sh

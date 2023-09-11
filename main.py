@@ -36,12 +36,17 @@ dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
 max_class = 1
 output_file = "./solutions.pkl"
-sim_weight = 10
+sim_methods = ["Squared L2", "Cosine"]
+sim_weights = {
+    "Cosine": 10,
+    "Squared L2": -0.1,
+    "L2": -1,
+}
 
 num_node_features = dataset[0].x.shape[1]
 init_with_data = False
 init_index = 0
-num_nodes = 10
+num_nodes = 4
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
@@ -73,7 +78,8 @@ if __name__ == "__main__":
             "dataset": str(dataset),
             "max_class": max_class,
             "output_file": output_file,
-            "sim_weight": sim_weight,
+            "sim_weights": sim_weights,
+            "sim_methods": sim_methods,
             "M": M,
             "big_number": big_number,
             "init_with_data": init_with_data,
@@ -89,7 +95,7 @@ if __name__ == "__main__":
 
     X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
     m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
-    # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=10, name="X", vtype=GRB.INTEGER)
+    # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
     # m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
 
     m.update()
@@ -119,25 +125,40 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
         
-    # These constraints are lower bounds, needed because quadratic equality constraints are non-convex
     embedding = output_vars["Aggregation"][0]
-    embedding_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
-    # embedding_similarity = m.addVar(lb=0, name="embedding_similarity")
-    # embedding_similarity = 0
+    regularizers = {}
+    if "Cosine" in sim_methods:
+        cosine_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
+        # embedding_similarity = 0
 
-    # Cosine Similarity
-    embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
-    phi_magnitude = np.linalg.norm(phi[max_class])
-    m.addGenConstrNorm(embedding_magnitude, embedding, which=2, name="embedding_magnitude_constraint")
-    m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*embedding_similarity, name="embedding_similarity_cosine")
+        # Cosine Similarity
+        embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
+        phi_magnitude = np.linalg.norm(phi[max_class])
+        m.addGenConstrNorm(embedding_magnitude, embedding, which=2, name="embedding_magnitude_constraint")
+        m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*cosine_similarity, name="cosine_similarity")
+        regularizers["Cosine"] = cosine_similarity
 
-    # Cosine Similarity
-    # embedding_magnitude = m.addVar(lb=0, name="embedding_magnitude")
-    # m.addConstr(embedding_magnitude*embedding_magnitude == gp.quicksum(embedding*embedding), name="embedding_magnitude_constraint")
-    # m.addConstr(np.linalg.norm(phi[max_class])*embedding_magnitude*embedding_similarity == gp.quicksum(embedding*phi), name="embedding_similarity_cosine")
+        # Cosine Similarity
+        # phi_magnitude = np.linalg.norm(phi[max_class])
+        # embedding_magnitude = m.addVar(lb=0, name="embedding_magnitude")
+        # m.addConstr(embedding_magnitude*embedding_magnitude == gp.quicksum(embedding*embedding), name="embedding_magnitude_constraint")
+        # m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*embedding_similarity, name="embedding_similarity")
+    if "L2" in sim_methods:
+        # L2 Distance
+        l2_similarity = m.addVar(lb=0, name="l2_distance")
+        m.addConstr(l2_similarity*l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
+        regularizers["L2"] = l2_similarity
+    if "Squared L2" in sim_methods:
+        # Squared L2 Distance
+        squared_l2_similarity = m.addVar(lb=0, name="l2_distance")
+        m.addConstr(squared_l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
+        regularizers["Squared L2"] = squared_l2_similarity
+
+    
+
             
     ## MIQCP objective function
-    m.setObjective(output_vars["Output"][0, max_class]+sim_weight*embedding_similarity, GRB.MAXIMIZE)
+    m.setObjective(output_vars["Output"][0, max_class]+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
     # m.setObjective(output_vars["Output"][max_class]+gp.quicksum(embedding*phi), GRB.MAXIMIZE)
 
     m.update()
@@ -161,28 +182,30 @@ if __name__ == "__main__":
             print("predicted output:", output_var_value.squeeze())
 
             embedding_var_value = model.cbGetSolution(embedding)
-            sol_similarity = np.dot(embedding_var_value, phi[max_class])/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi[max_class]))
-            # sol_similarity = sum((embedding_var_value[0] - phi[max_class])*(embedding_var_value[0] - phi[max_class]))
-            # print("Solution Similarity:", sol_similarity)
-            
-            # embedding_sim_var_value = model.cbGetSolution(embedding_similarity)
-            # print("Predicted Embedding Similarity vs Actual:", embedding_sim_var_value, sol_similarity)
-            
-            # sol_magnitude = np.linalg.norm(embedding_var_value)
-            # embedding_magnitude_var_value = model.cbGetSolution(embedding_magnitude)
-            # print("Predicted Embedding Magnitude vs Actual:", embedding_magnitude_var_value, sol_magnitude)
 
-            # save_graph(A=A_sol, X=X_sol, index=solution_count)
-            solutions.append({
+            similarities = {}
+            for sim_method in sim_methods:
+                if sim_method == "Cosine":
+                    sol_similarity = np.dot(embedding_var_value, phi[max_class])/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi[max_class]))
+                elif sim_method == "L2":
+                    sol_similarity = np.sqrt(sum((embedding_var_value - phi[max_class])*(embedding_var_value - phi[max_class])))
+                elif sim_method == "Squared L2":
+                    sol_similarity = sum((embedding_var_value - phi[max_class])*(embedding_var_value - phi[max_class]))
+                similarities[sim_method] = sol_similarity
+                embedding_sim_var_value = model.cbGetSolution(regularizers[sim_method])
+                print(f"Predicted {sim_method} vs Actual:", embedding_sim_var_value, sol_similarity)
+
+            
+            solution = {
                 "X": X_sol,
                 "A": A_sol,
                 "Output": sol_output,
-                "Similarity": sol_similarity,
                 "time": time.time(),
                 "Objective Value": model.cbGet(GRB.Callback.MIPSOL_OBJ),
                 "Upper Bound": model.cbGet(GRB.Callback.MIPSOL_OBJBND),
-
-            })
+            }
+            solution.update(similarities)
+            solutions.append(solution)
 
             if log_run:
                 fig, _ = draw_graph(A_sol, X_sol)
@@ -211,7 +234,13 @@ if __name__ == "__main__":
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
         var.Start = output
         if layer_name == "Aggregation":
-            embedding_similarity.Start = np.dot(output[0], phi[max_class])/(np.linalg.norm(output[0])*np.linalg.norm(phi[max_class]))
+            for sim_method in sim_methods:
+                if sim_method == "Cosine":
+                    regularizers[sim_method].Start = np.dot(output[0], phi[max_class])/(np.linalg.norm(output[0])*np.linalg.norm(phi[max_class]))
+                elif sim_method == "L2":
+                    regularizers[sim_method].Start = np.sqrt(sum((output[0] - phi[max_class])*(output[0]- phi[max_class])))
+                elif sim_method == "Squared L2":
+                    regularizers[sim_method].Start = sum((output[0] - phi[max_class])*(output[0] - phi[max_class]))
         #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
 
