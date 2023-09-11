@@ -11,3 +11,4 @@ figures/
 *.pkl
 wandb/
 *.sh
+*.log

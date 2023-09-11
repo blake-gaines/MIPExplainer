@@ -46,7 +46,7 @@ sim_weights = {
 num_node_features = dataset[0].x.shape[1]
 init_with_data = False
 init_index = 0
-num_nodes = 4
+num_nodes = 6
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
@@ -55,7 +55,8 @@ else:
     print(f"Initializing with dummy graph")
     init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
     # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
-    init_graph_adj = torch.eye(num_nodes)
+    # init_graph_adj = torch.eye(num_nodes)
+    init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
 if __name__ == "__main__":
