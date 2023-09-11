@@ -2,8 +2,8 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
-M = 1024
-big_number = 1024
+M = 512
+big_number = 512
 
 def add_fc_constraint(model, X, W, b, name=None):
     ts = model.addMVar((W.shape[0],), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)

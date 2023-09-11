@@ -25,7 +25,7 @@ print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-model_path = "models/MUTAG_model.pth"
+model_path = "models/MUTAG_model_smaller.pth"
 dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
 # model_path = "models/OurMotifs_model_mean.pth"
@@ -39,14 +39,14 @@ output_file = "./solutions.pkl"
 sim_methods = ["Squared L2", "Cosine"]
 sim_weights = {
     "Cosine": 10,
-    "Squared L2": -0.1,
+    "Squared L2": -0.01,
     "L2": -1,
 }
 
 num_node_features = dataset[0].x.shape[1]
 init_with_data = False
 init_index = 0
-num_nodes = 6
+num_nodes = 14
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
@@ -54,9 +54,9 @@ if init_with_data:
 else:
     print(f"Initializing with dummy graph")
     init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
-    # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
+    init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes)) - np.eye(num_nodes) + np.eye(num_nodes, k=1)
     # init_graph_adj = torch.eye(num_nodes)
-    init_graph_adj = torch.ones((num_nodes, num_nodes))
+    # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
 if __name__ == "__main__":
@@ -103,6 +103,7 @@ if __name__ == "__main__":
 
     m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
     force_undirected(m, A) # Generate an undirected graph
+    remove_self_loops(m, A)
 
     # # Impose some ordering to keep graph connected
     # for i in range(num_nodes):
