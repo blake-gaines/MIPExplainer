@@ -121,7 +121,8 @@ if __name__ == "__main__":
 
     load_model = False
     # model_path = "models/Is_Acyclic_model.pth"
-    model_path = "models/OurMotifs_model_smaller.pth"
+    # model_path = "models/OurMotifs_model_smaller.pth"
+    model_path = "models/Shapes_model.pth"
 
     log_run = False
 
@@ -129,10 +130,10 @@ if __name__ == "__main__":
     # from torch_geometric.datasets.graph_generator import BAGraph
     # from torch_geometric.datasets.motif_generator import HouseMotif
     # from torch_geometric.datasets.motif_generator import CycleMotif
-    dataset = TUDataset(root="data/TUDataset", name="MUTAG")
-    # with open("data/OurMotifs/dataset.pkl", "rb") as f:
-    # with open("data/Is_Acyclic/dataset.pkl", "rb") as f:
-    #     dataset = pickle.load(f)
+    # dataset = TUDataset(root="data/TUDataset", name="MUTAG")
+    # with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+    # with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+    with open("data/Shapes/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
     print()
     print(f'Dataset: {str(dataset)[:20]}:')
@@ -142,21 +143,22 @@ if __name__ == "__main__":
     # print(f'Number of classes: {dataset.num_classes}')
 
     # train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=dataset.y, random_state=7)
-    ys = [int(d.y) for d in dataset]
+    ys = [d.y for d in dataset]
     print("YS", ys[:10])
     num_classes = len(set(ys))
     num_node_features = dataset[0].x.shape[1]
     train_dataset, test_dataset = train_test_split(dataset, train_size=0.8, stratify=ys, random_state=7)
 
-    print(f'Number of training graphs: {len(train_dataset)}')
-    print(f'Number of test graphs: {len(test_dataset)}')
+    print(f"Number of training graphs: {len(train_dataset)}")
+    print(f"Number of test graphs: {len(test_dataset)}")
+    print(f"Number of classes: {num_classes}")
     print()
 
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     if not load_model:
-        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[32, 16, 8], lin_features=[8, 8], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[16, 16, 8], lin_features=[8, 8], global_aggr=global_aggr, conv_aggr=conv_aggr)
         # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4, 4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         criterion = torch.nn.CrossEntropyLoss()

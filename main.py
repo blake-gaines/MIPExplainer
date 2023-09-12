@@ -25,16 +25,15 @@ print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-model_path = "models/MUTAG_model_smaller.pth"
-dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+# model_path = "models/MUTAG_model_smaller.pth"
+# dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-# model_path = "models/OurMotifs_model_mean.pth"
-# with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
+model_path = f"models/{dataset_name}_model.pth"
+with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
-# model_path = "models/Is_Acyclic_model.pth"
-# with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
-max_class = 1
+max_class = 2
 output_file = "./solutions.pkl"
 sim_methods = ["Cosine"]
 sim_weights = {
@@ -54,9 +53,9 @@ if init_with_data:
 else:
     print(f"Initializing with dummy graph")
     init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
-    init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))  #- np.eye(num_nodes)
-    init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
-    # init_graph_adj = torch.eye(num_nodes)
+    # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))  #- np.eye(num_nodes)
+    # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
+    init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
     # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
@@ -77,7 +76,7 @@ if __name__ == "__main__":
             config={
             "learning_rate": 0.02,
             "architecture": str(nn),
-            "dataset": str(dataset),
+            "dataset": dataset_name,
             "max_class": max_class,
             "output_file": output_file,
             "sim_weights": sim_weights,
