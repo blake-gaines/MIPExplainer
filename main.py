@@ -36,7 +36,7 @@ dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
 max_class = 1
 output_file = "./solutions.pkl"
-sim_methods = ["Squared L2", "Cosine"]
+sim_methods = ["Cosine"]
 sim_weights = {
     "Cosine": 10,
     "Squared L2": -0.01,
@@ -54,7 +54,8 @@ if init_with_data:
 else:
     print(f"Initializing with dummy graph")
     init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
-    init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes)) - np.eye(num_nodes) + np.eye(num_nodes, k=1)
+    init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))  #- np.eye(num_nodes)
+    init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
     # init_graph_adj = torch.eye(num_nodes)
     # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
@@ -93,6 +94,7 @@ if __name__ == "__main__":
     m = gp.Model("GNN Inverse")
 
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
+    force_connected(m, A)
 
     X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
     m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
@@ -103,7 +105,7 @@ if __name__ == "__main__":
 
     m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
     force_undirected(m, A) # Generate an undirected graph
-    remove_self_loops(m, A)
+    # remove_self_loops(m, A)
 
     # # Impose some ordering to keep graph connected
     # for i in range(num_nodes):
@@ -260,7 +262,7 @@ if __name__ == "__main__":
 
     m.setParam("TimeLimit", 3600*24)
     m.setParam("Presolve", 2)
-    # m.setParam("PreQLinearize", 1) # TODO: Chose between 1 and 2
+    # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
     m.setParam("NonConvex", 2)
     m.write("model.mps") # Save model file
     m.optimize(callback)

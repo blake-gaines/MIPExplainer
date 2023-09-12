@@ -28,6 +28,10 @@ def force_undirected(model, A):
         for j in range(i, A.shape[1]):
             model.addConstr(A[i][j] == A[j][i], name=f"undirected_{i}_{j}")
 
+def force_connected(model, A):
+    for i in range(A.shape[0]-1):
+        model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1, name=f"node_{i}_connected")
+
 # def add_relu_constraint(model, X, name=None):
 #     activations = model.addMVar(X.shape, name=name)
 #     for index in product(*[range(r) for r in X.shape]):
