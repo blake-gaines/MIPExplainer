@@ -29,7 +29,7 @@ if not os.path.isdir("solutions"): os.mkdir("solutions")
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
 dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
-model_path = f"models/{dataset_name}_model_small.pth"
+model_path = f"models/{dataset_name}_model.pth"
 with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
 ys = [d.y for d in dataset]
@@ -37,7 +37,7 @@ num_classes = len(set(ys))
 
 max_class = 0
 output_file = "./solutions.pkl"
-sim_methods = ["Cosine"]
+sim_methods = ["Squared L2"]
 sim_weights = {
     "Cosine": 10,
     "Squared L2": -0.01,
@@ -47,17 +47,18 @@ sim_weights = {
 num_node_features = dataset[0].x.shape[1]
 init_with_data = True
 init_index = 0
-num_nodes = 14
+num_nodes = 10
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
     num_nodes = init_graph.num_nodes
 else:
     print(f"Initializing with dummy graph")
-    init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
+    # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
     # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))  #- np.eye(num_nodes)
     # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
-    init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
+    init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
+    init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
     # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
@@ -97,8 +98,6 @@ if __name__ == "__main__":
 
     # X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
     # m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
-    # for i in range(num_nodes):
-    #     m.addSOS(type=GRB.SOS_TYPE1, vars=X[:, i])
     X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
     m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
 
@@ -108,9 +107,9 @@ if __name__ == "__main__":
     force_undirected(m, A) # Generate an undirected graph
     # remove_self_loops(m, A)
 
-    # # Impose some ordering to keep graph connected
-    # for i in range(num_nodes):
-    #     m.addConstr(gp.quicksum(A[i][j+1] for j in range(i,num_nodes-1)) >= 1,name="node_i_connected")
+    # Impose some ordering to keep graph connected
+    for i in range(num_nodes):
+        m.addConstr(gp.quicksum(A[i][j+1] for j in range(i,num_nodes-1)) >= 1,name="node_i_connected")
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -134,7 +133,6 @@ if __name__ == "__main__":
     regularizers = {}
     if "Cosine" in sim_methods:
         cosine_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
-        # embedding_similarity = 0
 
         # Cosine Similarity
         embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
@@ -254,22 +252,20 @@ if __name__ == "__main__":
 
     # Use tuned parameters
     m.read("./tune0.prm")
+    
+    # # Tune
+    # print("Tuning")
+    # m.setParam("TuneTimeLimit", 3600*48)
+    # m.tune()
+    # for i in range(m.tuneResultCount):
+    #     m.getTuneResult(i)
+    #     m.write('tune'+str(i)+'.prm')
+    # print("Done Tuning")
 
-
-    m.setParam("NonConvex", 2)
-    m.setParam("Presolve", 2)
-
-    # Tune
-    print("Tuning")
-    m.setParam("TuneTimeLimit", 11*3600)
-    m.tune()
-    # m.setParam("TimeLimit", 3600*24)
-    # # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
-    # # m.setParam("ConcurrentMIP", 4)
-    # m.setParam("MIPFocus", 1)
-    # m.setParam("Symmetry", 2)
-    # m.write("model.mps") # Save model file
-    # m.optimize(callback)
+    m.setParam("TimeLimit", 3600*24)
+    # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
+    m.write("model.mps") # Save model file
+    m.optimize(callback)
 
     with open(output_file, "wb") as f:
         pickle.dump(solutions, f)
