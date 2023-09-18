@@ -29,11 +29,13 @@ if not os.path.isdir("solutions"): os.mkdir("solutions")
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
 dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
-model_path = f"models/{dataset_name}_model.pth"
+model_path = f"models/{dataset_name}_model_small.pth"
 with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
+ys = [d.y for d in dataset]
+num_classes = len(set(ys))
 
-max_class = 2
+max_class = 0
 output_file = "./solutions.pkl"
 sim_methods = ["Cosine"]
 sim_weights = {
@@ -43,7 +45,7 @@ sim_weights = {
 }
 
 num_node_features = dataset[0].x.shape[1]
-init_with_data = False
+init_with_data = True
 init_index = 0
 num_nodes = 14
 if init_with_data:
@@ -74,7 +76,6 @@ if __name__ == "__main__":
             project="GNN-Inverter", 
             # Track hyperparameters and run metadata
             config={
-            "learning_rate": 0.02,
             "architecture": str(nn),
             "dataset": dataset_name,
             "max_class": max_class,
@@ -86,7 +87,6 @@ if __name__ == "__main__":
             "init_with_data": init_with_data,
             "model_path": model_path,  
         })
-        wandb.save("model.mps", policy="end")
         wandb.save("solutions.pkl", policy="end")
         wandb.run.log_code(".")
 
@@ -95,10 +95,12 @@ if __name__ == "__main__":
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
     force_connected(m, A)
 
-    X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
-    m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
-    # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
-    # m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
+    # X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
+    # m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
+    # for i in range(num_nodes):
+    #     m.addSOS(type=GRB.SOS_TYPE1, vars=X[:, i])
+    X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
+    m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
 
     m.update()
 
@@ -159,13 +161,16 @@ if __name__ == "__main__":
 
     
 
+    other_outputs_max = m.addVar(name="other_outputs_max")
+    m.addGenConstrMax(other_outputs_max, [output_vars["Output"][0, j] for j in range(num_classes) if j!=max_class], name="max_of_other_outputs")
             
     ## MIQCP objective function
-    m.setObjective(output_vars["Output"][0, max_class]+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
+    m.setObjective(output_vars["Output"][0, max_class]-other_outputs_max+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
     # m.setObjective(output_vars["Output"][max_class]+gp.quicksum(embedding*phi), GRB.MAXIMIZE)
 
     m.update()
     m.write("model.mps") # Save model file
+    if log_run: wandb.save("model.mps", policy="now")
 
     # Define the callback function
     solutions = []
@@ -250,21 +255,21 @@ if __name__ == "__main__":
     # Use tuned parameters
     m.read("./tune0.prm")
 
-    # # Tune
-    # print("Tuning")
-    # m.setParam("TuneTimeLimit", 3600*20)
-    # m.tune()
-    # for i in range(m.tuneResultCount):
-    #     m.getTuneResult(i)
-    #     m.write('tune'+str(i)+'.prm')
-    # print("Done Tuning")
 
-    m.setParam("TimeLimit", 3600*24)
-    m.setParam("Presolve", 2)
-    # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
     m.setParam("NonConvex", 2)
-    m.write("model.mps") # Save model file
-    m.optimize(callback)
+    m.setParam("Presolve", 2)
+
+    # Tune
+    print("Tuning")
+    m.setParam("TuneTimeLimit", 11*3600)
+    m.tune()
+    # m.setParam("TimeLimit", 3600*24)
+    # # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
+    # # m.setParam("ConcurrentMIP", 4)
+    # m.setParam("MIPFocus", 1)
+    # m.setParam("Symmetry", 2)
+    # m.write("model.mps") # Save model file
+    # m.optimize(callback)
 
     with open(output_file, "wb") as f:
         pickle.dump(solutions, f)
