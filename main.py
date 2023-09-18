@@ -28,14 +28,14 @@ if not os.path.isdir("solutions"): os.mkdir("solutions")
 # model_path = "models/MUTAG_model_smaller.pth"
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
+dataset_name = "Is_Acyclic" # {"Shapes", "OurMotifs", "Is_Acyclic"}
 model_path = f"models/{dataset_name}_model.pth"
 with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
 
-max_class = 2
+max_class = 0
 output_file = "./solutions.pkl"
-sim_methods = ["Cosine"]
+sim_methods = ["Squared L2"]
 sim_weights = {
     "Cosine": 10,
     "Squared L2": -0.01,
@@ -45,17 +45,18 @@ sim_weights = {
 num_node_features = dataset[0].x.shape[1]
 init_with_data = False
 init_index = 0
-num_nodes = 14
+num_nodes = 10
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
     num_nodes = init_graph.num_nodes
 else:
     print(f"Initializing with dummy graph")
-    init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
+    # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
     # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))  #- np.eye(num_nodes)
     # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
-    init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
+    init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
+    init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
     # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
@@ -95,10 +96,10 @@ if __name__ == "__main__":
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
     force_connected(m, A)
 
-    X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
-    m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
-    # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
-    # m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
+    # X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
+    # m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
+    X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
+    m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
 
     m.update()
 
@@ -106,9 +107,9 @@ if __name__ == "__main__":
     force_undirected(m, A) # Generate an undirected graph
     # remove_self_loops(m, A)
 
-    # # Impose some ordering to keep graph connected
-    # for i in range(num_nodes):
-    #     m.addConstr(gp.quicksum(A[i][j+1] for j in range(i,num_nodes-1)) >= 1,name="node_i_connected")
+    # Impose some ordering to keep graph connected
+    for i in range(num_nodes):
+        m.addConstr(gp.quicksum(A[i][j+1] for j in range(i,num_nodes-1)) >= 1,name="node_i_connected")
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -132,7 +133,6 @@ if __name__ == "__main__":
     regularizers = {}
     if "Cosine" in sim_methods:
         cosine_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
-        # embedding_similarity = 0
 
         # Cosine Similarity
         embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
@@ -162,7 +162,6 @@ if __name__ == "__main__":
             
     ## MIQCP objective function
     m.setObjective(output_vars["Output"][0, max_class]+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
-    # m.setObjective(output_vars["Output"][max_class]+gp.quicksum(embedding*phi), GRB.MAXIMIZE)
 
     m.update()
     m.write("model.mps") # Save model file
@@ -249,10 +248,10 @@ if __name__ == "__main__":
 
     # Use tuned parameters
     m.read("./tune0.prm")
-
+    
     # # Tune
     # print("Tuning")
-    # m.setParam("TuneTimeLimit", 3600*20)
+    # m.setParam("TuneTimeLimit", 3600*48)
     # m.tune()
     # for i in range(m.tuneResultCount):
     #     m.getTuneResult(i)
@@ -260,9 +259,7 @@ if __name__ == "__main__":
     # print("Done Tuning")
 
     m.setParam("TimeLimit", 3600*24)
-    m.setParam("Presolve", 2)
     # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
-    m.setParam("NonConvex", 2)
     m.write("model.mps") # Save model file
     m.optimize(callback)
 
