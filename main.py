@@ -19,7 +19,7 @@ import wandb
 import matplotlib.pyplot as plt
 import sys
 
-log_run = True
+log_run = False
 
 print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
@@ -87,6 +87,7 @@ if __name__ == "__main__":
             "init_with_data": init_with_data,
             "model_path": model_path,  
         })
+        wandb.save("model.lp", policy="end")
         wandb.save("model.mps", policy="end")
         wandb.save("solutions.pkl", policy="end")
         wandb.run.log_code(".")
@@ -105,11 +106,8 @@ if __name__ == "__main__":
 
     m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
     force_undirected(m, A) # Generate an undirected graph
-    # remove_self_loops(m, A)
 
-    # Impose some ordering to keep graph connected
-    for i in range(num_nodes):
-        m.addConstr(gp.quicksum(A[i][j+1] for j in range(i,num_nodes-1)) >= 1,name="node_i_connected")
+    # remove_self_loops(m, A)
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -164,7 +162,8 @@ if __name__ == "__main__":
     m.setObjective(output_vars["Output"][0, max_class]+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
 
     m.update()
-    m.write("model.mps") # Save model file
+    m.write("model.lp") # Save model file
+    m.write("model.mps")
 
     # Define the callback function
     solutions = []
@@ -260,7 +259,7 @@ if __name__ == "__main__":
 
     m.setParam("TimeLimit", 3600*24)
     # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
-    m.write("model.mps") # Save model file
+    # m.write("model.lp") # Save model file
     m.optimize(callback)
 
     with open(output_file, "wb") as f:
