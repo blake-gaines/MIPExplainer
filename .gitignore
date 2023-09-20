@@ -12,3 +12,4 @@ figures/
 wandb/
 *.sh
 *.log
+*.lp
