@@ -1,26 +1,18 @@
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
+from utils import get_matmul_bounds
 
 M = 256 #2**14
 big_number = 256 #2**14
-
-def get_matmul_bounds(MVar, W):
-    lower_bounds = ((MVar.getAttr("lb") @ W.clip(min=0)) + (MVar.getAttr("ub") @ W.clip(max=0))).squeeze()
-    upper_bounds = ((MVar.getAttr("ub") @ W.clip(min=0)) + (MVar.getAttr("lb") @ W.clip(max=0))).squeeze()
-    return lower_bounds, upper_bounds
 
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
     # lower_bounds = ((X.getAttr("lb") @ W.T.clip(min=0)) + (X.getAttr("ub") @ W.T.clip(max=0))).squeeze()
     # upper_bounds = ((X.getAttr("ub") @ W.T.clip(min=0)) + (X.getAttr("lb") @ W.T.clip(max=0))).squeeze()
     lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
-    print(lower_bounds, upper_bounds)
-    ts = model.addMVar((W.shape[0],), lb=lower_bounds, ub=upper_bounds, name=f"{name}_t" if name else None)
-    # print("AHHHHHHHHHH", X.getAttr("ub"))
-    # for t, lb, ub in zip(ts.tolist(), lower_bounds.tolist(), upper_bounds.tolist()):
-    #     t.setAttr("lb", lb)
-    #     t.setAttr("lb", ub)
+    # print(lower_bounds, upper_bounds)
+    ts = model.addMVar((W.shape[0],), lb=lower_bounds.clip(min=-big_number, max=big_number), ub=upper_bounds.clip(min=-big_number, max=big_number), name=f"{name}_t" if name else None)
     model.addConstr(ts==X@W.T + b, name=f"{name}_output_constraint" if name else None)
     return ts[np.newaxis, :]
 
@@ -54,8 +46,8 @@ def force_connected(model, A):
 
 def add_relu_constraint(model, X, name=None):
     model.update()
-    ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0))
-    ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0))
+    ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0, max=big_number), name=f"{name}_ts")
+    ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0, max=big_number), name=f"{name}_ss")
     model.update()
     zs = model.addMVar(X.shape, vtype=GRB.BINARY)
     model.addConstr(ts - ss == X, name=f"{name}_constraint_1" if name else None)
@@ -63,32 +55,40 @@ def add_relu_constraint(model, X, name=None):
     model.addConstr(ss <= ss.getAttr("ub")*(1-zs), name=f"{name}_constraint_3" if name else None)
     return ts
 
-def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias=None, lin_weight=None, lin_bias=None, project=False, name=None, aggr="mean"):
+def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin_weight=None, lin_bias=None, project=False, name=None, aggr="mean"):
     model.update()
     if project:
-        X = add_fc_constraint(model, X, lin_weight, lin_bias)
-        X = add_relu_constraint(model, X)
+        X = add_fc_constraint(model, X, lin_weight, lin_bias, name=name+"projection_fc")
+        X = add_relu_constraint(model, X, name=name+"projection_relu")
         
-    aggregated_features = model.addMVar(X.shape)
+    aggregated_features = model.addMVar(X.shape, name=f"{name}_aggregated_features")
 
     if aggr=="mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
-        aggregated_features.setAttr("lb", X.getAttr("lb")) # TODO: Tighten
-        aggregated_features.setAttr("ub", X.getAttr("ub"))
+        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
         model.addConstr(aggregated_features*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose
     elif aggr=="sum":
-        aggregated_features.setAttr("lb", X.getAttr("lb")) # TODO: Tighten
-        aggregated_features.setAttr("ub", X.getAttr("ub"))
+        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
         model.addConstr(aggregated_features == A@X, name=f"{name}_sum_constraint" if name else None)
 
     model.update()
 
     first_lower_bounds, first_upper_bounds = get_matmul_bounds(X, lin_r_weight.T)
     second_lower_bounds, second_upper_bounds = get_matmul_bounds(aggregated_features, lin_l_weight.T)
-    ts_lower_bounds = first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0)
-    ts_upper_bounds = first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0)
+
+    if name == "Conv_0" and aggr=="mean" and model.getConstrByName("categorical_features[0]") is not None:
+        print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
+        first_lower_bounds = np.maximum(first_lower_bounds, np.repeat(lin_r_weight.min(axis=1)[np.newaxis, :], X.shape[0], axis=0))
+        first_upper_bounds = np.minimum(first_upper_bounds, np.repeat(lin_r_weight.max(axis=1)[np.newaxis, :], X.shape[0], axis=0))
+
+    ts_lower_bounds = (first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0)).clip(min=-big_number, max=big_number)
+    ts_upper_bounds = (first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0)).clip(min=-big_number, max=big_number)
     ts = model.addMVar((X.shape[0], lin_r_weight.shape[0]), lb=ts_lower_bounds, ub=ts_upper_bounds, name=f"{name}_t" if name else None)
+    ts.setAttr("lb", ts_lower_bounds)
+    ts.setAttr("ub", ts_upper_bounds)
     model.addConstr(ts == (X@lin_r_weight.T) + (aggregated_features@lin_l_weight.T) + np.expand_dims(lin_l_bias, 0), name=f"{name}_output_constraint" if name else None) 
     return ts
 
@@ -101,6 +101,7 @@ def global_mean_pool(model, X, name=None):
     model.update()
     averages = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
     averages.setAttr("lb", X.getAttr("lb").sum(axis=0)/X.shape[0])
+    averages.setAttr("ub", X.getAttr("ub").sum(axis=0)/X.shape[0])
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages[np.newaxis, :]
 

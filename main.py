@@ -21,21 +21,24 @@ import sys
 
 log_run = False
 
+torch.manual_seed(12345)
+
 print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-# model_path = "models/MUTAG_model_smaller.pth"
+# dataset_name = "MUTAG"
+# model_path = "models/MUTAG_model.pth"
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-dataset_name = "Is_Acyclic" # {"Shapes", "OurMotifs", "Is_Acyclic"}
+dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
 model_path = f"models/{dataset_name}_model.pth"
 with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
 
 max_class = 0
 output_file = "./solutions.pkl"
-sim_methods = ["Squared L2"]
+sim_methods = ["Cosine"]
 sim_weights = {
     "Cosine": 10,
     "Squared L2": -0.01,
@@ -52,18 +55,21 @@ if init_with_data:
     num_nodes = init_graph.num_nodes
 else:
     print(f"Initializing with dummy graph")
-    # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
-    # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))  #- np.eye(num_nodes)
     # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
     init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
-    init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
+    if dataset_name in ["Is_Acyclic", "Shapes"]:
+        init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
+    elif dataset_name in ["MUTAG", "OurMotifs"]:
+        init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
+    # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
     # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
 if __name__ == "__main__":
     nn = torch.load(model_path)
     nn.eval()
-    nn.double()
+    # nn.double()
+    nn = nn.to(torch.double)
 
     phi = get_average_phi(dataset, nn, "Aggregation")
 
@@ -96,18 +102,20 @@ if __name__ == "__main__":
 
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
     force_connected(m, A)
+    force_undirected(m, A) # Generate an undirected graph
+    # remove_self_loops(m, A)
+    m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
 
-    # X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X") # vtype for BINARY node features
-    # m.addConstr(gp.quicksum(X.T) == 1, name="categorical") # REMOVE for non-categorical features
-    X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
-    m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
+    if dataset_name in ["MUTAG", "OurMotifs"]:
+        X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
+        m.addConstr(gp.quicksum(X.T) == 1, name="categorical_features")
+    elif dataset_name in ["Is_Acyclic", "Shapes"]:
+        X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
+        m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
+    else:
+        raise ValueError(f"Unknown Decision Variables for {dataset_name}")
 
     m.update()
-
-    m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
-    force_undirected(m, A) # Generate an undirected graph
-
-    # remove_self_loops(m, A)
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -228,11 +236,18 @@ if __name__ == "__main__":
     # X.Start = G.x.detach().numpy()
     A.Start = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
     all_outputs = nn.get_all_layer_outputs(init_graph)
+    all_ub, all_lb = [], []
     assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
     for var, name_output in zip(output_vars.values(), all_outputs):
         layer_name = name_output[0]
         output = name_output[1].detach().numpy()
+        # var.setAttr("lb", var.getAttr("lb").clip(min=-128, max=128))
+        # var.setAttr("ub", var.getAttr("ub").clip(min=-128, max=128))
+        all_lb.extend(var.getAttr("lb").flatten().tolist())
+        all_ub.extend(var.getAttr("ub").flatten().tolist())
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
+        assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.getAttr("lb"), output, np.greater(var.getAttr("lb"), output).sum())
+        assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.getAttr("ub"), output, np.lesser(var.getAttr("ub"), output).sum())
         var.Start = output
         if layer_name == "Aggregation":
             for sim_method in sim_methods:
@@ -244,6 +259,8 @@ if __name__ == "__main__":
                     regularizers[sim_method].Start = sum((output[0] - phi[max_class])*(output[0] - phi[max_class]))
         #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
+    print((np.array(all_ub) < 0).sum()/len(all_ub))
+    print(min(all_lb), max(all_ub))
 
     # Use tuned parameters
     m.read("./tune0.prm")
@@ -259,7 +276,6 @@ if __name__ == "__main__":
 
     m.setParam("TimeLimit", 3600*24)
     # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
-    # m.write("model.lp") # Save model file
     m.optimize(callback)
 
     with open(output_file, "wb") as f:

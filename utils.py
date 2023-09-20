@@ -52,10 +52,15 @@ def get_average_phi(dataset, nn, layer_name):
     num_classes = len(set([data.y for data in dataset]))
     n_instances = torch.zeros(num_classes)
     for data in dataset:
-        data.x = data.x.double()
+        # data.x = data.x.double()
         embeddings = dict(nn.get_all_layer_outputs(data))[layer_name]
         if embedding_sum is None: 
             embedding_sum = torch.zeros(num_classes, embeddings.shape[-1])
         embedding_sum[data.y] += torch.sum(embeddings, dim=0)
         n_instances[data.y] += 1
     return (embedding_sum / torch.unsqueeze(n_instances, 1)).detach().numpy()
+
+def get_matmul_bounds(MVar, W):
+    lower_bounds = ((MVar.getAttr("lb") @ W.clip(min=0)) + (MVar.getAttr("ub") @ W.clip(max=0))).squeeze()
+    upper_bounds = ((MVar.getAttr("ub") @ W.clip(min=0)) + (MVar.getAttr("lb") @ W.clip(max=0))).squeeze()
+    return lower_bounds, upper_bounds

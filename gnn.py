@@ -52,11 +52,12 @@ class GNN(torch.nn.Module):
         if data.batch is None: data.batch = torch.zeros(data.x.shape[0], dtype=torch.int64)
         # If there are no edge weights, assign weight 1 to all edges
         if data.edge_weight is None: data.edge_weight = torch.ones(data.edge_index.shape[1])
+        data.x = data.x.to(next(self.parameters()).dtype)
         return data
     
     def forwardXA(self, X, A):
         # Same as forward, but takes node features and adjacency matrix instead of a Data object
-        X = torch.Tensor(X).double()
+        X = torch.Tensor(X).to(next(self.parameters()).dtype)
         A = torch.Tensor(A)
         edge_index, edge_weight = dense_to_sparse(A)
         data = Data(x=X, edge_index=edge_index, edge_weight=edge_weight)
