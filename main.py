@@ -31,10 +31,12 @@ if not os.path.isdir("solutions"): os.mkdir("solutions")
 # model_path = "models/MUTAG_model.pth"
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-dataset_name = "Is_Acyclic" # {"Shapes", "OurMotifs", "Is_Acyclic"}
+dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
 model_path = f"models/{dataset_name}_model.pth"
 with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
+ys = [d.y for d in dataset]
+num_classes = len(set(ys))
 
 max_class = 1
 output_file = "./solutions.pkl"
@@ -47,7 +49,7 @@ sim_weights = {
 trim_unneeded_outputs = True
 
 num_node_features = dataset[0].x.shape[1]
-init_with_data = False
+init_with_data = True
 init_index = 0
 num_nodes = 5
 if init_with_data:
@@ -82,7 +84,6 @@ if __name__ == "__main__":
             project="GNN-Inverter", 
             # Track hyperparameters and run metadata
             config={
-            "learning_rate": 0.02,
             "architecture": str(nn),
             "dataset": dataset_name,
             "max_class": max_class,
@@ -166,6 +167,8 @@ if __name__ == "__main__":
 
     
 
+    other_outputs_max = m.addVar(name="other_outputs_max")
+    m.addGenConstrMax(other_outputs_max, [output_vars["Output"][0, j] for j in range(num_classes) if j!=max_class], name="max_of_other_outputs")
             
     ## MIQCP objective function
     max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]
