@@ -19,7 +19,7 @@ import wandb
 import matplotlib.pyplot as plt
 import sys
 
-log_run = False
+log_run = True
 
 torch.manual_seed(12345)
 
@@ -31,12 +31,12 @@ if not os.path.isdir("solutions"): os.mkdir("solutions")
 # model_path = "models/MUTAG_model.pth"
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
+dataset_name = "Is_Acyclic" # {"Shapes", "OurMotifs", "Is_Acyclic"}
 model_path = f"models/{dataset_name}_model.pth"
 with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
 
-max_class = 0
+max_class = 1
 output_file = "./solutions.pkl"
 sim_methods = ["Cosine"]
 sim_weights = {
@@ -44,11 +44,12 @@ sim_weights = {
     "Squared L2": -0.01,
     "L2": -1,
 }
+trim_unneeded_outputs = True
 
 num_node_features = dataset[0].x.shape[1]
 init_with_data = False
 init_index = 0
-num_nodes = 10
+num_nodes = 5
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
@@ -123,7 +124,7 @@ if __name__ == "__main__":
     for name, layer in nn.layers.items():
         previous_layer_output = output_vars[next(reversed(output_vars))]
         if isinstance(layer, Linear):
-            output_vars[name] = torch_fc_constraint(m, previous_layer_output, layer, name=name)
+            output_vars[name] = torch_fc_constraint(m, previous_layer_output, layer, name=name, max_output=max_class if trim_unneeded_outputs and name == "Output" else None)
         elif isinstance(layer, SAGEConv):
             output_vars[name] = torch_sage_constraint(m, A, previous_layer_output, layer, name=name)
         elif isinstance(layer, MeanAggregation):
@@ -167,7 +168,8 @@ if __name__ == "__main__":
 
             
     ## MIQCP objective function
-    m.setObjective(output_vars["Output"][0, max_class]+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
+    max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]
+    m.setObjective(max_output_var+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
 
     m.update()
     m.write("model.lp") # Save model file
@@ -241,13 +243,17 @@ if __name__ == "__main__":
     for var, name_output in zip(output_vars.values(), all_outputs):
         layer_name = name_output[0]
         output = name_output[1].detach().numpy()
+        if trim_unneeded_outputs and layer_name == "Output": 
+            print(output, var)
+            output = output[:, max_class][np.newaxis, :]
+            print(output)
         # var.setAttr("lb", var.getAttr("lb").clip(min=-128, max=128))
         # var.setAttr("ub", var.getAttr("ub").clip(min=-128, max=128))
         all_lb.extend(var.getAttr("lb").flatten().tolist())
         all_ub.extend(var.getAttr("ub").flatten().tolist())
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
         assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.getAttr("lb"), output, np.greater(var.getAttr("lb"), output).sum())
-        assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.getAttr("ub"), output, np.lesser(var.getAttr("ub"), output).sum())
+        assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.getAttr("ub"), output, np.less(var.getAttr("ub"), output).sum())
         var.Start = output
         if layer_name == "Aggregation":
             for sim_method in sim_methods:

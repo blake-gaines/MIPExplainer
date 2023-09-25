@@ -3,16 +3,17 @@ from gurobipy import GRB
 import numpy as np
 from utils import get_matmul_bounds
 
-M = 256 #2**14
-big_number = 256 #2**14
+M = 2**14
+big_number = 2**14
 
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
     # lower_bounds = ((X.getAttr("lb") @ W.T.clip(min=0)) + (X.getAttr("ub") @ W.T.clip(max=0))).squeeze()
     # upper_bounds = ((X.getAttr("ub") @ W.T.clip(min=0)) + (X.getAttr("lb") @ W.T.clip(max=0))).squeeze()
     lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
+    # lower_bounds, upper_bounds = lower_bounds.clip(min=-big_number, max=big_number), upper_bounds.clip(min=-big_number, max=big_number)
     # print(lower_bounds, upper_bounds)
-    ts = model.addMVar((W.shape[0],), lb=lower_bounds.clip(min=-big_number, max=big_number), ub=upper_bounds.clip(min=-big_number, max=big_number), name=f"{name}_t" if name else None)
+    ts = model.addMVar((W.shape[0],), lb=lower_bounds, ub=upper_bounds, name=f"{name}_t" if name else None)
     model.addConstr(ts==X@W.T + b, name=f"{name}_output_constraint" if name else None)
     return ts[np.newaxis, :]
 
@@ -46,8 +47,8 @@ def force_connected(model, A):
 
 def add_relu_constraint(model, X, name=None):
     model.update()
-    ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0, max=big_number), name=f"{name}_ts")
-    ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0, max=big_number), name=f"{name}_ss")
+    ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts") #.clip(min=0, max=big_number)
+    ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0), name=f"{name}_ss") #.clip(min=0, max=big_number)
     model.update()
     zs = model.addMVar(X.shape, vtype=GRB.BINARY)
     model.addConstr(ts - ss == X, name=f"{name}_constraint_1" if name else None)
@@ -66,12 +67,12 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
     if aggr=="mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
-        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
-        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
         model.addConstr(aggregated_features*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose
     elif aggr=="sum":
-        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
-        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0).clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
         model.addConstr(aggregated_features == A@X, name=f"{name}_sum_constraint" if name else None)
 
     model.update()
@@ -84,8 +85,8 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
         first_lower_bounds = np.maximum(first_lower_bounds, np.repeat(lin_r_weight.min(axis=1)[np.newaxis, :], X.shape[0], axis=0))
         first_upper_bounds = np.minimum(first_upper_bounds, np.repeat(lin_r_weight.max(axis=1)[np.newaxis, :], X.shape[0], axis=0))
 
-    ts_lower_bounds = (first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0)).clip(min=-big_number, max=big_number)
-    ts_upper_bounds = (first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0)).clip(min=-big_number, max=big_number)
+    ts_lower_bounds = (first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0))#.clip(min=-big_number, max=big_number)
+    ts_upper_bounds = (first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0))#.clip(min=-big_number, max=big_number)
     ts = model.addMVar((X.shape[0], lin_r_weight.shape[0]), lb=ts_lower_bounds, ub=ts_upper_bounds, name=f"{name}_t" if name else None)
     ts.setAttr("lb", ts_lower_bounds)
     ts.setAttr("ub", ts_upper_bounds)
@@ -105,8 +106,14 @@ def global_mean_pool(model, X, name=None):
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages[np.newaxis, :]
 
-def torch_fc_constraint(model, X, layer, name=None):
-    return add_fc_constraint(model, X, W=layer.get_parameter(f"weight").detach().numpy(), b=layer.get_parameter(f"bias").detach().numpy(), name=name)
+def torch_fc_constraint(model, X, layer, name=None, max_output = None):
+    weight = layer.get_parameter(f"weight").detach().numpy()
+    bias = layer.get_parameter(f"bias").detach().numpy()
+    if max_output is not None:
+            weight = weight[max_output][np.newaxis, :] 
+            bias = np.atleast_2d(bias[max_output]) 
+
+    return add_fc_constraint(model, X, W=weight, b=bias, name=name)
 
 def torch_sage_constraint(model, A, X, layer, name=None):
     # TODO: Cleanup
