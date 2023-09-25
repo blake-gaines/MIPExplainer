@@ -38,20 +38,20 @@ with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(
 ys = [d.y for d in dataset]
 num_classes = len(set(ys))
 
-max_class = 1
+max_class = 0
 output_file = "./solutions.pkl"
 sim_methods = ["Cosine"]
 sim_weights = {
-    "Cosine": 10,
+    "Cosine": 5,
     "Squared L2": -0.01,
     "L2": -1,
 }
-trim_unneeded_outputs = True
+trim_unneeded_outputs = False
 
 num_node_features = dataset[0].x.shape[1]
-init_with_data = True
+init_with_data = False
 init_index = 0
-num_nodes = 5
+num_nodes = 8
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
@@ -113,6 +113,7 @@ if __name__ == "__main__":
         m.addConstr(gp.quicksum(X.T) == 1, name="categorical_features")
     elif dataset_name in ["Is_Acyclic", "Shapes"]:
         X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
+        # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.CONTINUOUS)
         m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
     else:
         raise ValueError(f"Unknown Decision Variables for {dataset_name}")
@@ -143,7 +144,7 @@ if __name__ == "__main__":
         cosine_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
 
         # Cosine Similarity
-        embedding_magnitude = m.addVar(lb=0, ub=GRB.INFINITY, name="embedding_magnitude")
+        embedding_magnitude = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2)**0.5, name="embedding_magnitude")
         phi_magnitude = np.linalg.norm(phi[max_class])
         m.addGenConstrNorm(embedding_magnitude, embedding, which=2, name="embedding_magnitude_constraint")
         m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*cosine_similarity, name="cosine_similarity")
@@ -156,19 +157,17 @@ if __name__ == "__main__":
         # m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*embedding_similarity, name="embedding_similarity")
     if "L2" in sim_methods:
         # L2 Distance
-        l2_similarity = m.addVar(lb=0, name="l2_distance")
+        l2_similarity = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2)**0.5, name="l2_distance")
         m.addConstr(l2_similarity*l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
         regularizers["L2"] = l2_similarity
     if "Squared L2" in sim_methods:
         # Squared L2 Distance
-        squared_l2_similarity = m.addVar(lb=0, name="l2_distance")
+        squared_l2_similarity = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2), name="l2_distance")
         m.addConstr(squared_l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
         regularizers["Squared L2"] = squared_l2_similarity
 
-    
-
-    other_outputs_max = m.addVar(name="other_outputs_max")
-    m.addGenConstrMax(other_outputs_max, [output_vars["Output"][0, j] for j in range(num_classes) if j!=max_class], name="max_of_other_outputs")
+    # other_outputs_max = m.addVar(name="other_outputs_max")
+    # m.addGenConstrMax(other_outputs_max, [output_vars["Output"][0, j] for j in range(num_classes) if j!=max_class], name="max_of_other_outputs")
             
     ## MIQCP objective function
     max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]
@@ -255,8 +254,8 @@ if __name__ == "__main__":
         all_lb.extend(var.getAttr("lb").flatten().tolist())
         all_ub.extend(var.getAttr("ub").flatten().tolist())
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
-        assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.getAttr("lb"), output, np.greater(var.getAttr("lb"), output).sum())
-        assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.getAttr("ub"), output, np.less(var.getAttr("ub"), output).sum())
+        assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.shape, var.getAttr("lb").min(), output.min(), np.greater(var.getAttr("lb"), output).sum())
+        assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.shape, var.getAttr("ub").max(), output.max(), np.less(var.getAttr("ub"), output).sum())
         var.Start = output
         if layer_name == "Aggregation":
             for sim_method in sim_methods:
@@ -268,8 +267,8 @@ if __name__ == "__main__":
                     regularizers[sim_method].Start = sum((output[0] - phi[max_class])*(output[0] - phi[max_class]))
         #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
-    print((np.array(all_ub) < 0).sum()/len(all_ub))
-    print(min(all_lb), max(all_ub))
+    # print((np.array(all_ub) < 0).sum()/len(all_ub))
+    print(f"Lowest Lower Bound: {min(all_lb)} | Highest Upper Bound: {max(all_ub)}, | Min AV Bound: {min([b for b in np.abs(all_lb+all_ub) if b>0])}")
 
     # Use tuned parameters
     m.read("./tune0.prm")

@@ -3,8 +3,8 @@ from gurobipy import GRB
 import numpy as np
 from utils import get_matmul_bounds
 
-M = 2**14
-big_number = 2**14
+M = 2**3
+big_number = 2**3
 
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
@@ -62,13 +62,14 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
         X = add_fc_constraint(model, X, lin_weight, lin_bias, name=name+"projection_fc")
         X = add_relu_constraint(model, X, name=name+"projection_relu")
         
-    aggregated_features = model.addMVar(X.shape, name=f"{name}_aggregated_features")
+    aggregated_features = model.addMVar(X.shape, lb=-big_number, ub=big_number, name=f"{name}_aggregated_features")
 
     if aggr=="mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
-        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
-        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
+        print(aggregated_features.shape, X.getAttr("lb").mean(axis=0).shape)
+        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))#.clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))#.clip(min=-big_number, max=big_number))
         model.addConstr(aggregated_features*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose
     elif aggr=="sum":
         aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
@@ -101,8 +102,8 @@ def global_add_pool(model, X, name=None):
 def global_mean_pool(model, X, name=None):
     model.update()
     averages = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
-    averages.setAttr("lb", X.getAttr("lb").sum(axis=0)/X.shape[0])
-    averages.setAttr("ub", X.getAttr("ub").sum(axis=0)/X.shape[0])
+    averages.setAttr("lb", (X.getAttr("lb").sum(axis=0)/X.shape[0]))#.clip(min=-big_number, max=big_number))
+    averages.setAttr("ub", (X.getAttr("ub").sum(axis=0)/X.shape[0]))#.clip(min=-big_number, max=big_number))
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages[np.newaxis, :]
 

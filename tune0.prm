@@ -1,7 +1,5 @@
 MIPFocus 1
 NonConvex 2
 Presolve 2
-Aggregate 0
-ObjScale 1
-NumericFocus 1
-PreQLinearize 2
+NumericFocus 0
+PreQLinearize -1

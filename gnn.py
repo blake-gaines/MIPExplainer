@@ -159,9 +159,9 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     if not load_model:
-        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[16, 16, 8], lin_features=[8, 8], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[16, 16, 16], lin_features=[8, 8], global_aggr=global_aggr, conv_aggr=conv_aggr)
         # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4, 4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=0.01)
         criterion = torch.nn.CrossEntropyLoss()
         print(model)
         pbar = tqdm(range(1,epochs+1))
