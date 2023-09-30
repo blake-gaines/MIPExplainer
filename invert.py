@@ -3,14 +3,15 @@ from gurobipy import GRB
 import numpy as np
 from utils import get_matmul_bounds
 
-M = 2**3
-big_number = 2**3
+M = 256
+big_number = 256
 
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
     # lower_bounds = ((X.getAttr("lb") @ W.T.clip(min=0)) + (X.getAttr("ub") @ W.T.clip(max=0))).squeeze()
     # upper_bounds = ((X.getAttr("ub") @ W.T.clip(min=0)) + (X.getAttr("lb") @ W.T.clip(max=0))).squeeze()
     lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
+    # lower_bounds, upper_bounds = -big_number, big_number
     # lower_bounds, upper_bounds = lower_bounds.clip(min=-big_number, max=big_number), upper_bounds.clip(min=-big_number, max=big_number)
     # print(lower_bounds, upper_bounds)
     ts = model.addMVar((W.shape[0],), lb=lower_bounds, ub=upper_bounds, name=f"{name}_t" if name else None)
@@ -67,7 +68,6 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
     if aggr=="mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
-        print(aggregated_features.shape, X.getAttr("lb").mean(axis=0).shape)
         aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))#.clip(min=-big_number, max=big_number))
         aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))#.clip(min=-big_number, max=big_number))
         model.addConstr(aggregated_features*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose

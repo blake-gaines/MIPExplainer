@@ -15,6 +15,7 @@ import torch
 from tqdm import tqdm
 import os
 import pickle
+import numpy as np
 
 class GNN(torch.nn.Module):
     aggr_classes = {
@@ -44,7 +45,7 @@ class GNN(torch.nn.Module):
         if len(lin_features) > 1:
             for i, shape in enumerate(zip(lin_features, lin_features[1:])):
                 self.layers[f"Lin_{i+1}"] = Linear(*shape)
-                self.layers[f"Lin{i+1}Relu"] = ReLU()
+                self.layers[f"Lin_{i+1}_Relu"] = ReLU()
         self.layers[f"Output"] = Linear(lin_features[-1] if len(lin_features)>0 else conv_features[-1], out_channels)
         
     def fix_data(self, data):
@@ -108,12 +109,25 @@ def test(model, loader):
         correct += int((pred == data.y).sum())  # Check against ground-truth labels.
     return correct / len(loader.dataset)  # Derive ratio of correct predictions.
 
+def smallest_largest_weight(model):
+    smallest = float('inf')  # Initialize with positive infinity as a placeholder
+    largest = -float('inf')
+    for param in model.parameters():
+        # if param.requires_grad:
+            param_min = torch.min((param[param != 0]).abs())  # Find the smallest non-zero weight in the parameter
+            if param_min < smallest:
+                smallest = param_min.item()
+            param_max = torch.max((param[param != 0]).abs())  # Find the largest weight in the parameter
+            if param_max > largest:
+                largest = param_max.item()
+    return (smallest if smallest != float('inf') else None), (largest if largest != -float('inf') else None)
+
 if __name__ == "__main__":
     torch.manual_seed(12345)
 
     if not os.path.isdir("models"): os.mkdir("models")
 
-    epochs = 40
+    epochs = 10
     num_inits = 5
     num_explanations = 3
     conv_type = "sage"
@@ -123,7 +137,7 @@ if __name__ == "__main__":
     load_model = False
     # model_path = "models/Is_Acyclic_model.pth"
     # model_path = "models/OurMotifs_model_smaller.pth"
-    model_path = "models/Shapes_model.pth"
+    model_path = "models/Shapes_Clean_model.pth"
 
     log_run = False
 
@@ -134,7 +148,7 @@ if __name__ == "__main__":
     # dataset = TUDataset(root="data/TUDataset", name="MUTAG")
     # with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
     # with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
-    with open("data/Shapes/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+    with open("data/Shapes_Clean/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
     print()
     print(f'Dataset: {str(dataset)[:20]}:')
@@ -160,17 +174,23 @@ if __name__ == "__main__":
 
     if not load_model:
         model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[16, 16, 16], lin_features=[8, 8], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        model.to(torch.float64)
         # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4, 4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=0.01)
+        optimizer = torch.optim.AdamW(model.parameters())#, weight_decay=0.01)
         criterion = torch.nn.CrossEntropyLoss()
         print(model)
         pbar = tqdm(range(1,epochs+1))
+        # prev_best_test_acc = 0
         for epoch in pbar:
             avg_loss = train(model, train_loader, optimizer, criterion)
             train_acc = test(model, train_loader)
             test_acc = test(model, test_loader)
-            pbar.set_postfix_str(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}, Avg Loss: {avg_loss:.4f}')
-
+            sw, lw = smallest_largest_weight(model)
+            pbar.set_postfix_str(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}, Avg Loss: {avg_loss:.4f}, Log SW: {np.log(sw)/np.log(10):.2f}, Log LW: {np.log(lw)/np.log(10):.2f}')
+            # if test_acc > prev_best_test_acc:
+            #     print("New Best Test Accuracy: Saving")
+            #     prev_best_test_acc = test_acc
+            #     torch.save(model, model_path)
         torch.save(model, model_path)
     else:
         model = torch.load(model_path)

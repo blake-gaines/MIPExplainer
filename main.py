@@ -15,7 +15,6 @@ from torch_geometric.datasets import TUDataset
 import pickle
 from collections import OrderedDict
 from utils import *
-import wandb
 import matplotlib.pyplot as plt
 import sys
 
@@ -31,7 +30,7 @@ if not os.path.isdir("solutions"): os.mkdir("solutions")
 # model_path = "models/MUTAG_model.pth"
 # dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-dataset_name = "Shapes" # {"Shapes", "OurMotifs", "Is_Acyclic"}
+dataset_name = "Shapes_Clean" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
 model_path = f"models/{dataset_name}_model.pth"
 with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
@@ -40,9 +39,10 @@ num_classes = len(set(ys))
 
 max_class = 0
 output_file = "./solutions.pkl"
+param_file = "./tune0.prm"
 sim_methods = ["Cosine"]
 sim_weights = {
-    "Cosine": 5,
+    "Cosine": 10,
     "Squared L2": -0.01,
     "L2": -1,
 }
@@ -55,12 +55,13 @@ num_nodes = 8
 if init_with_data:
     print(f"Initializing with solution from graph {init_index}")
     init_graph = dataset[init_index]
+    # init_graph = [d for d in dataset if int(d.y) == max_class][0]
     num_nodes = init_graph.num_nodes
 else:
     print(f"Initializing with dummy graph")
     # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
     init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
-    if dataset_name in ["Is_Acyclic", "Shapes"]:
+    if dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
         init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
     elif dataset_name in ["MUTAG", "OurMotifs"]:
         init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
@@ -71,14 +72,17 @@ else:
 if __name__ == "__main__":
     nn = torch.load(model_path)
     nn.eval()
-    # nn.double()
-    nn = nn.to(torch.double)
+    nn.to(torch.float64)
+    # for param in nn.parameters():
+    #     if param.requires_grad:
+    #         param.data[param.data.abs() < 1e-3] = 0.0
 
     phi = get_average_phi(dataset, nn, "Aggregation")
 
     print(nn)
 
     if log_run:
+        import wandb
         wandb.login()
         wandb.init(
             project="GNN-Inverter", 
@@ -93,11 +97,11 @@ if __name__ == "__main__":
             "M": M,
             "big_number": big_number,
             "init_with_data": init_with_data,
-            "model_path": model_path,  
+            "model_path": model_path, 
+            "param_file": param_file, 
         })
-        wandb.save("model.lp", policy="end")
-        wandb.save("model.mps", policy="end")
-        wandb.save("solutions.pkl", policy="end")
+        wandb.save(param_file, policy="now")
+        wandb.save(output_file, policy="end")
         wandb.run.log_code(".")
 
     m = gp.Model("GNN Inverse")
@@ -111,7 +115,7 @@ if __name__ == "__main__":
     if dataset_name in ["MUTAG", "OurMotifs"]:
         X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
         m.addConstr(gp.quicksum(X.T) == 1, name="categorical_features")
-    elif dataset_name in ["Is_Acyclic", "Shapes"]:
+    elif dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
         X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
         # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.CONTINUOUS)
         m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
@@ -174,8 +178,11 @@ if __name__ == "__main__":
     m.setObjective(max_output_var+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
 
     m.update()
-    m.write("model.lp") # Save model file
+    m.write("model.lp")
     m.write("model.mps")
+    if log_run:
+        wandb.save("model.lp", policy="now")
+        wandb.save("model.mps", policy="now")
 
     # Define the callback function
     solutions = []
@@ -235,7 +242,7 @@ if __name__ == "__main__":
     # m.update()
     # for s in range(m.NumStart):
     #     m.params.StartNumber = s
-    init_graph.x = init_graph.x.double()
+    init_graph.x = init_graph.x.to(torch.float64)
     init_graph.edge_index = to_undirected(init_graph.edge_index)
     # X.Start = G.x.detach().numpy()
     A.Start = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
@@ -244,19 +251,23 @@ if __name__ == "__main__":
     assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
     for var, name_output in zip(output_vars.values(), all_outputs):
         layer_name = name_output[0]
+        # var = output_vars[layer_name]
         output = name_output[1].detach().numpy()
         if trim_unneeded_outputs and layer_name == "Output": 
-            print(output, var)
             output = output[:, max_class][np.newaxis, :]
-            print(output)
         # var.setAttr("lb", var.getAttr("lb").clip(min=-128, max=128))
         # var.setAttr("ub", var.getAttr("ub").clip(min=-128, max=128))
+        m.update()
         all_lb.extend(var.getAttr("lb").flatten().tolist())
         all_ub.extend(var.getAttr("ub").flatten().tolist())
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
         assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.shape, var.getAttr("lb").min(), output.min(), np.greater(var.getAttr("lb"), output).sum())
         assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.shape, var.getAttr("ub").max(), output.max(), np.less(var.getAttr("ub"), output).sum())
         var.Start = output
+        # var.setAttr("lb", output)
+        # var.setAttr("ub", output)
+        # if layer_name == "Lin_0":
+        #     import pdb; pdb.set_trace()
         if layer_name == "Aggregation":
             for sim_method in sim_methods:
                 if sim_method == "Cosine":
@@ -270,8 +281,11 @@ if __name__ == "__main__":
     # print((np.array(all_ub) < 0).sum()/len(all_ub))
     print(f"Lowest Lower Bound: {min(all_lb)} | Highest Upper Bound: {max(all_ub)}, | Min AV Bound: {min([b for b in np.abs(all_lb+all_ub) if b>0])}")
 
+    for var in m.getVars():
+        assert var.vtype==GRB.BINARY or (var.LB != float('-inf') and var.UB != float('inf')), f"Variable {var.VarName} is unbounded."
+
     # Use tuned parameters
-    m.read("./tune0.prm")
+    m.read(param_file)
     
     # # Tune
     # print("Tuning")
@@ -282,7 +296,7 @@ if __name__ == "__main__":
     #     m.write('tune'+str(i)+'.prm')
     # print("Done Tuning")
 
-    m.setParam("TimeLimit", 3600*24)
+    m.setParam("TimeLimit", 3600*48)
     # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
     m.optimize(callback)
 
