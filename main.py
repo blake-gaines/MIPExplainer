@@ -37,7 +37,7 @@ with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(
 ys = [d.y for d in dataset]
 num_classes = len(set(ys))
 
-max_class = 0
+max_class = 1
 output_file = "./solutions.pkl"
 param_file = "./tune0.prm"
 sim_methods = ["Cosine"]
@@ -49,13 +49,13 @@ sim_weights = {
 trim_unneeded_outputs = False
 
 num_node_features = dataset[0].x.shape[1]
-init_with_data = False
+init_with_data = True
 init_index = 0
 num_nodes = 8
 if init_with_data:
-    print(f"Initializing with solution from graph {init_index}")
-    init_graph = dataset[init_index]
-    # init_graph = [d for d in dataset if int(d.y) == max_class][0]
+    # print(f"Initializing with solution from graph {init_index}")
+    # init_graph = dataset[init_index]
+    init_graph = [d for d in dataset if int(d.y) == max_class][0]
     num_nodes = init_graph.num_nodes
 else:
     print(f"Initializing with dummy graph")
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
     force_connected(m, A)
     force_undirected(m, A) # Generate an undirected graph
-    # remove_self_loops(m, A)
+    remove_self_loops(m, A)
     m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
 
     if dataset_name in ["MUTAG", "OurMotifs"]:
@@ -170,11 +170,15 @@ if __name__ == "__main__":
         m.addConstr(squared_l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
         regularizers["Squared L2"] = squared_l2_similarity
 
-    # other_outputs_max = m.addVar(name="other_outputs_max")
-    # m.addGenConstrMax(other_outputs_max, [output_vars["Output"][0, j] for j in range(num_classes) if j!=max_class], name="max_of_other_outputs")
-            
+    m.update()
+    other_outputs_vars = [output_vars["Output"][0, j] for j in range(num_classes) if j!=max_class]
+    # other_outputs_max = m.addVar(name="other_outputs_max", lb=max(v.getAttr("lb") for v in other_outputs_vars), ub=max(v.getAttr("ub") for v in other_outputs_vars))
+    # m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
+        
     ## MIQCP objective function
     max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]
+    for var in other_outputs_vars:
+        m.addConstr(var <= max_output_var)
     m.setObjective(max_output_var+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
 
     m.update()

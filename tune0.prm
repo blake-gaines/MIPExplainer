@@ -1,5 +1,4 @@
-MIPFocus 0
+MIPFocus 1
 NonConvex 2
 Presolve 2
-NumericFocus 0
 PreQLinearize -1

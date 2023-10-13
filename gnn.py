@@ -16,6 +16,11 @@ from tqdm import tqdm
 import os
 import pickle
 import numpy as np
+import torch.nn.utils.prune as prune
+
+def prune_weights_below_threshold(module, threshold):
+    for name, param in module.named_parameters():
+        param.data[param.abs() < threshold] = 0.0
 
 class GNN(torch.nn.Module):
     aggr_classes = {
@@ -127,17 +132,18 @@ if __name__ == "__main__":
 
     if not os.path.isdir("models"): os.mkdir("models")
 
-    epochs = 10
+    epochs = 40
     num_inits = 5
     num_explanations = 3
     conv_type = "sage"
     global_aggr = "mean"
     conv_aggr = "mean"
+    prune_threshold = 1e-5
 
     load_model = False
     # model_path = "models/Is_Acyclic_model.pth"
     # model_path = "models/OurMotifs_model_smaller.pth"
-    model_path = "models/Shapes_Clean_model.pth"
+    model_path = "models/Shapes_Clean_model_small.pth"
 
     log_run = False
 
@@ -173,10 +179,12 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     if not load_model:
-        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[16, 16, 16], lin_features=[8, 8], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[16, 16, 16], lin_features=[8, 8], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4, 4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
         model.to(torch.float64)
-        # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4, 4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
-        optimizer = torch.optim.AdamW(model.parameters())#, weight_decay=0.01)
+        optimizer = torch.optim.AdamW(model.parameters(), weight_decay=0.01)
+        # optimizer = torch.optim.Adam(model.parameters(), weight_decay=0.01)
+
         criterion = torch.nn.CrossEntropyLoss()
         print(model)
         pbar = tqdm(range(1,epochs+1))
@@ -191,6 +199,12 @@ if __name__ == "__main__":
             #     print("New Best Test Accuracy: Saving")
             #     prev_best_test_acc = test_acc
             #     torch.save(model, model_path)
+
+        prune_weights_below_threshold(model, prune_threshold)
+        test_acc = test(model, test_loader)
+        print("Pruned Test Accuracy:", test_acc)
+        sw, lw = smallest_largest_weight(model)
+        print(f"Log SW: {np.log(sw)/np.log(10):.2f}, Log LW: {np.log(lw)/np.log(10):.2f}")
         torch.save(model, model_path)
     else:
         model = torch.load(model_path)
