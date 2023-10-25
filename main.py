@@ -17,8 +17,9 @@ from collections import OrderedDict
 from utils import *
 import matplotlib.pyplot as plt
 import sys
+from torch_geometric.utils import from_networkx, to_networkx
 
-log_run = True
+log_run = False
 
 torch.manual_seed(12345)
 
@@ -26,16 +27,17 @@ print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-# dataset_name = "MUTAG"
-# model_path = "models/MUTAG_model.pth"
-# dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+dataset_name = "MUTAG"
+model_path = "models/MUTAG_model.pth"
+dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-dataset_name = "Shapes_Clean" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
-model_path = f"models/{dataset_name}_model.pth"
-with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+# dataset_name = "OurMotifs" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
+# model_path = f"models/{dataset_name}_model.pth"
+# with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
-ys = [d.y for d in dataset]
+ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
+print(num_classes)
 
 max_class = 1
 output_file = "./solutions.pkl"
@@ -49,14 +51,45 @@ sim_weights = {
 trim_unneeded_outputs = False
 
 num_node_features = dataset[0].x.shape[1]
-init_with_data = True
+init_with_data = False
 init_index = 0
-num_nodes = 8
+num_nodes = 3
 if init_with_data:
     # print(f"Initializing with solution from graph {init_index}")
     # init_graph = dataset[init_index]
-    init_graph = [d for d in dataset if int(d.y) == max_class][0]
+    init_graph = [d for d in dataset if int(d.y) == max_class and d.num_nodes == num_nodes][0]
+    A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
+    print("Connected before reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
+
+    G = to_networkx(init_graph)
+    
+    # Calculate node degrees
+    degrees = dict(G.degree)
+
+    # Sort nodes by degree
+    # sorted_nodes = sorted(G.nodes, key=lambda node: degrees[node], reverse=True)
+    # sorted_nodes = list(nx.breadth_first_search.bfs_tree(G, source=list(G.nodes)[0]))
+    sorted_nodes = list(nx.dfs_preorder_nodes(G, source=list(G.nodes)[0]))
+
+    sorted_nodes.reverse()
+
+    # Create a mapping of old labels to new labels
+    label_mapping = {i: node for i, node in enumerate(sorted_nodes)}
+
+    # Relabel the graph
+    G = nx.relabel_nodes(G, label_mapping)
+
+    # print(label_mapping)
+    # print(torch.Tensor(list(G.edges)).to(torch.int64), init_graph.edge_index)
+
+    init_graph.x = init_graph.x[sorted_nodes, :]
+    init_graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
+
     num_nodes = init_graph.num_nodes
+
+    A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
+    print("Connected after reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
+
 else:
     print(f"Initializing with dummy graph")
     # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
@@ -110,7 +143,9 @@ if __name__ == "__main__":
     force_connected(m, A)
     force_undirected(m, A) # Generate an undirected graph
     remove_self_loops(m, A)
-    m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
+    # m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
+
+
 
     if dataset_name in ["MUTAG", "OurMotifs"]:
         X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
@@ -122,6 +157,19 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown Decision Variables for {dataset_name}")
 
+    m.update()
+
+    neighborhoods_match = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="neighborhoods_match")
+    obeys_orderings = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="obeys_orderings")
+    for i in range(num_nodes-1):
+        for j in range(i+1, A.shape[0]):
+            m.addGenConstrIndicator(neighborhoods_match[i,j], 1, sum(A[i]-A[j]), GRB.EQUAL, 0, name=f"neighborhood_match_constraint_{i}_{j}")
+            if X[0][0].vtype == GRB.BINARY:
+                # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
+                m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features-1)), GRB.LESS_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
+            # elif X.vtype = GRB.INTEGER and num_node_features == 1:
+            m.addConstr(obeys_orderings[i,j]-neighborhoods_match[i,j] >= 1, name=f"nb_ordering_{i}_{j}")
+    
     m.update()
 
     ## Build a MIQCP for the trained neural network
@@ -177,8 +225,8 @@ if __name__ == "__main__":
         
     ## MIQCP objective function
     max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]
-    for var in other_outputs_vars:
-        m.addConstr(var <= max_output_var)
+    # for var in other_outputs_vars:
+    #     m.addConstr(var <= max_output_var)
     m.setObjective(max_output_var+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
 
     m.update()
@@ -291,9 +339,9 @@ if __name__ == "__main__":
     # Use tuned parameters
     m.read(param_file)
     
-    # # Tune
+    # # # Tune
     # print("Tuning")
-    # m.setParam("TuneTimeLimit", 3600*48)
+    # # m.setParam("TuneTimeLimit", 3600*48)
     # m.tune()
     # for i in range(m.tuneResultCount):
     #     m.getTuneResult(i)
