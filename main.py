@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import sys
 from torch_geometric.utils import from_networkx, to_networkx
 
-log_run = False
+log_run = True
 
 torch.manual_seed(12345)
 
@@ -27,13 +27,13 @@ print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-dataset_name = "MUTAG"
-model_path = "models/MUTAG_model.pth"
-dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+# dataset_name = "MUTAG"
+# model_path = f"models/MUTAG_model.pth"
+# dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-# dataset_name = "OurMotifs" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
-# model_path = f"models/{dataset_name}_model.pth"
-# with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+dataset_name = "Shapes" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
+model_path = f"models/{dataset_name}_model.pth"
+with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
 ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
@@ -51,9 +51,9 @@ sim_weights = {
 trim_unneeded_outputs = False
 
 num_node_features = dataset[0].x.shape[1]
-init_with_data = False
+init_with_data = True
 init_index = 0
-num_nodes = 3
+num_nodes = 12
 if init_with_data:
     # print(f"Initializing with solution from graph {init_index}")
     # init_graph = dataset[init_index]
@@ -97,7 +97,8 @@ else:
     if dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
         init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
     elif dataset_name in ["MUTAG", "OurMotifs"]:
-        init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
+        # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
+        init_graph_x = torch.eye(num_node_features)[torch.randint(1, (num_nodes,)),:]
     # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
     # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
@@ -113,6 +114,8 @@ if __name__ == "__main__":
     phi = get_average_phi(dataset, nn, "Aggregation")
 
     print(nn)
+    print("Model Parameters:", sum(param.numel() for param in nn.parameters()))
+
 
     if log_run:
         import wandb
@@ -159,18 +162,18 @@ if __name__ == "__main__":
 
     m.update()
 
-    neighborhoods_match = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="neighborhoods_match")
-    obeys_orderings = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="obeys_orderings")
-    for i in range(num_nodes-1):
-        for j in range(i+1, A.shape[0]):
-            m.addGenConstrIndicator(neighborhoods_match[i,j], 1, sum(A[i]-A[j]), GRB.EQUAL, 0, name=f"neighborhood_match_constraint_{i}_{j}")
-            if X[0][0].vtype == GRB.BINARY:
-                # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
-                m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features-1)), GRB.LESS_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
-            # elif X.vtype = GRB.INTEGER and num_node_features == 1:
-            m.addConstr(obeys_orderings[i,j]-neighborhoods_match[i,j] >= 1, name=f"nb_ordering_{i}_{j}")
+    # neighborhoods_match = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="neighborhoods_match")
+    # obeys_orderings = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="obeys_orderings")
+    # for i in range(num_nodes-1):
+    #     for j in range(i+1, A.shape[0]):
+    #         m.addGenConstrIndicator(neighborhoods_match[i,j], 1, sum(A[i]-A[j]), GRB.EQUAL, 0, name=f"neighborhood_match_constraint_{i}_{j}")
+    #         if X[0][0].vtype == GRB.BINARY:
+    #             # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
+    #             m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features-1)), GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
+    #         # elif X.vtype = GRB.INTEGER and num_node_features == 1:
+    #         m.addConstr(obeys_orderings[i,j]-neighborhoods_match[i,j] >= 1, name=f"nb_ordering_{i}_{j}")
     
-    m.update()
+    # m.update()
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -316,10 +319,11 @@ if __name__ == "__main__":
         assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.shape, var.getAttr("lb").min(), output.min(), np.greater(var.getAttr("lb"), output).sum())
         assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.shape, var.getAttr("ub").max(), output.max(), np.less(var.getAttr("ub"), output).sum())
         var.Start = output
+
+        ## Fix outputs for debugging
         # var.setAttr("lb", output)
         # var.setAttr("ub", output)
-        # if layer_name == "Lin_0":
-        #     import pdb; pdb.set_trace()
+
         if layer_name == "Aggregation":
             for sim_method in sim_methods:
                 if sim_method == "Cosine":
