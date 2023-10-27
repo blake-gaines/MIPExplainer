@@ -39,7 +39,7 @@ ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
 print(num_classes)
 
-max_class = 1
+max_class = 2
 output_file = "./solutions.pkl"
 param_file = "./tune0.prm"
 sim_methods = ["Cosine"]
@@ -54,69 +54,12 @@ num_node_features = dataset[0].x.shape[1]
 init_with_data = True
 init_index = 0
 num_nodes = 12
-if init_with_data:
-    # print(f"Initializing with solution from graph {init_index}")
-    # init_graph = dataset[init_index]
-    init_graph = [d for d in dataset if int(d.y) == max_class and d.num_nodes == num_nodes][0]
-    A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
-    print("Connected before reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
-
-    G = to_networkx(init_graph)
-    
-    # Calculate node degrees
-    degrees = dict(G.degree)
-
-    # Sort nodes by degree
-    # sorted_nodes = sorted(G.nodes, key=lambda node: degrees[node], reverse=True)
-    # sorted_nodes = list(nx.breadth_first_search.bfs_tree(G, source=list(G.nodes)[0]))
-    sorted_nodes = list(nx.dfs_preorder_nodes(G, source=list(G.nodes)[0]))
-
-    sorted_nodes.reverse()
-
-    # Create a mapping of old labels to new labels
-    label_mapping = {i: node for i, node in enumerate(sorted_nodes)}
-
-    # Relabel the graph
-    G = nx.relabel_nodes(G, label_mapping)
-
-    # print(label_mapping)
-    # print(torch.Tensor(list(G.edges)).to(torch.int64), init_graph.edge_index)
-
-    init_graph.x = init_graph.x[sorted_nodes, :]
-    init_graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
-
-    num_nodes = init_graph.num_nodes
-
-    A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
-    print("Connected after reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
-
-else:
-    print(f"Initializing with dummy graph")
-    # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
-    init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
-    if dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
-        init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
-    elif dataset_name in ["MUTAG", "OurMotifs"]:
-        # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
-        init_graph_x = torch.eye(num_node_features)[torch.randint(1, (num_nodes,)),:]
-    # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
-    # init_graph_adj = torch.ones((num_nodes, num_nodes))
-    init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
 if __name__ == "__main__":
     nn = torch.load(model_path)
     nn.eval()
     nn.to(torch.float64)
-    # for param in nn.parameters():
-    #     if param.requires_grad:
-    #         param.data[param.data.abs() < 1e-3] = 0.0
-
-    phi = get_average_phi(dataset, nn, "Aggregation")
-
-    print(nn)
-    print("Model Parameters:", sum(param.numel() for param in nn.parameters()))
-
-
+    
     if log_run:
         import wandb
         wandb.login()
@@ -139,6 +82,54 @@ if __name__ == "__main__":
         wandb.save(param_file, policy="now")
         wandb.save(output_file, policy="end")
         wandb.run.log_code(".")
+
+    if init_with_data:
+        # print(f"Initializing with solution from graph {init_index}")
+        # init_graph = dataset[init_index]
+        init_graph = [d for d in dataset if int(d.y) == max_class and d.num_nodes == num_nodes][0]
+        A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
+        print("Connected before reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
+
+        G = to_networkx(init_graph)
+        
+        # Calculate node degrees
+        degrees = dict(G.degree)
+
+        # Sort nodes by degree
+        sorted_nodes = list(nx.dfs_preorder_nodes(G, source=list(G.nodes)[0]))
+        sorted_nodes.reverse()
+
+        # Create a mapping of old labels to new labels
+        label_mapping = {i: node for i, node in enumerate(sorted_nodes)}
+
+        # Relabel the graph
+        G = nx.relabel_nodes(G, label_mapping)
+
+        init_graph.x = init_graph.x[sorted_nodes, :]
+        init_graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
+
+        num_nodes = init_graph.num_nodes
+
+        A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
+        print("Connected after reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
+
+    else:
+        print(f"Initializing with dummy graph")
+        # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
+        init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
+        if dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
+            init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
+        elif dataset_name in ["MUTAG", "OurMotifs"]:
+            # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
+            init_graph_x = torch.eye(num_node_features)[torch.randint(1, (num_nodes,)),:]
+        # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
+        # init_graph_adj = torch.ones((num_nodes, num_nodes))
+        init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
+
+    phi = get_average_phi(dataset, nn, "Aggregation")
+
+    print(nn)
+    print("Model Parameters:", sum(param.numel() for param in nn.parameters()))
 
     m = gp.Model("GNN Inverse")
 
