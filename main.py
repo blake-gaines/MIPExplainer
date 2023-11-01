@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import sys
 from torch_geometric.utils import from_networkx, to_networkx
 
-log_run = True
+log_run = False
 
 torch.manual_seed(12345)
 
@@ -27,22 +27,22 @@ print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-# dataset_name = "MUTAG"
-# model_path = f"models/MUTAG_model.pth"
-# dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+dataset_name = "MUTAG"
+model_path = f"models/MUTAG_model.pth"
+dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 
-dataset_name = "Shapes" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
-model_path = f"models/{dataset_name}_model.pth"
-with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+# dataset_name = "Is_Acyclic" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
+# model_path = f"models/{dataset_name}_model.pth"
+# with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
 ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
 print(num_classes)
 
-max_class = 2
+max_class = 0
 output_file = "./solutions.pkl"
 param_file = "./tune0.prm"
-sim_methods = ["Cosine"]
+sim_methods = []
 sim_weights = {
     "Cosine": 10,
     "Squared L2": -0.01,
@@ -51,9 +51,30 @@ sim_weights = {
 trim_unneeded_outputs = False
 
 num_node_features = dataset[0].x.shape[1]
-init_with_data = True
+init_with_data = False
 init_index = 0
-num_nodes = 12
+num_nodes = 5
+
+def canonicalize_graph(graph):
+    G = to_networkx(init_graph)
+
+    A = to_dense_adj(graph.edge_index).detach().numpy().squeeze()
+    weighted_feature_sums = A @ (graph.x.detach().numpy() @ np.linspace(1,graph.num_node_features, num=graph.num_node_features))
+    # import pdb; pdb.set_trace()
+    min_node=np.argmin(A.sum(axis=0)*num_node_features*num_nodes+weighted_feature_sums)
+
+    # Sort nodes by degree
+    sorted_nodes = list(nx.dfs_preorder_nodes(G, source=min_node))
+    sorted_nodes.reverse()
+
+    # Create a mapping of old labels to new labels
+    label_mapping = {i: node for i, node in enumerate(sorted_nodes)}
+
+    # Relabel the graph
+    G = nx.relabel_nodes(G, label_mapping)
+
+    graph.x = init_graph.x[sorted_nodes, :]
+    graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
 
 if __name__ == "__main__":
     nn = torch.load(model_path)
@@ -90,28 +111,12 @@ if __name__ == "__main__":
         A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
         print("Connected before reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
 
-        G = to_networkx(init_graph)
-        
-        # Calculate node degrees
-        degrees = dict(G.degree)
-
-        # Sort nodes by degree
-        sorted_nodes = list(nx.dfs_preorder_nodes(G, source=list(G.nodes)[0]))
-        sorted_nodes.reverse()
-
-        # Create a mapping of old labels to new labels
-        label_mapping = {i: node for i, node in enumerate(sorted_nodes)}
-
-        # Relabel the graph
-        G = nx.relabel_nodes(G, label_mapping)
-
-        init_graph.x = init_graph.x[sorted_nodes, :]
-        init_graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
-
-        num_nodes = init_graph.num_nodes
+        canonicalize_graph(init_graph)
 
         A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
-        print("Connected after reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
+        assert all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]), "Graph was not connected"
+
+        num_nodes = init_graph.num_nodes
 
     else:
         print(f"Initializing with dummy graph")
@@ -125,6 +130,8 @@ if __name__ == "__main__":
         # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
         # init_graph_adj = torch.ones((num_nodes, num_nodes))
         init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
+
+        canonicalize_graph(init_graph)
 
     phi = get_average_phi(dataset, nn, "Aggregation")
 
@@ -151,8 +158,7 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown Decision Variables for {dataset_name}")
 
-    m.update()
-
+    # m.update()
     # neighborhoods_match = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="neighborhoods_match")
     # obeys_orderings = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="obeys_orderings")
     # for i in range(num_nodes-1):
@@ -161,10 +167,43 @@ if __name__ == "__main__":
     #         if X[0][0].vtype == GRB.BINARY:
     #             # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
     #             m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features-1)), GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
-    #         # elif X.vtype = GRB.INTEGER and num_node_features == 1:
+    #         elif X[0][0].vtype == GRB.INTEGER and num_node_features == 1:
+    #             m.addGenConstrIndicator(obeys_orderings[i,j], 1, X[i][0]-X[j][0], GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
     #         m.addConstr(obeys_orderings[i,j]-neighborhoods_match[i,j] >= 1, name=f"nb_ordering_{i}_{j}")
     
-    # m.update()
+    m.update()
+    if X[0][0].vtype == GRB.BINARY:
+        # messages [i][j][k] is the kth dimension of the message from [i] to [j]
+        messages = m.addMVar((num_nodes, num_nodes, num_node_features), vtype=GRB.BINARY)
+        messages = m.addVars([(i,j,k) for i in range(num_nodes) for j in range(num_nodes) for k in range(num_node_features)], vtype=GRB.BINARY, name="initial_messages_constraint")
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                for k in range(num_node_features):
+                    m.addGenConstrIndicator(messages[i,j,k], 1, A[i,j]+X[i,k], GRB.EQUAL, 2, name=f"initial_message_{i}_{j}_{k}")
+
+        neighborhoods_match = m.addVars([(i,j,k) for i in range(num_nodes-1) for j in range(i+1, num_nodes) for k in range(num_node_features)], vtype=GRB.BINARY, name="neighborhoods_match")
+        obeys_orderings = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="obeys_orderings")
+        for i in range(num_nodes-1):
+            for j in range(i+1, num_nodes):
+                for k in range(num_node_features):
+                    # TODO: Fix for directed graphs, integer features
+                    i_neighborhood_ks = messages.select(i,'*',k)
+                    i_neighborhood_ks.pop(i)
+                    j_neighborhood_ks = messages.select(j,'*',k)
+                    j_neighborhood_ks.pop(j)
+                    m.addGenConstrIndicator(neighborhoods_match[i,j,k], 1, sum(i_neighborhood_ks)-sum(j_neighborhood_ks), GRB.EQUAL, 0, name=f"neighborhood_match_constraint_{i}_{j}_{k}")
+
+                    # For each k in the number
+                    #  of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
+                m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features)), GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
+                # If the neighborhoods match, the ordering must be obeyed
+                m.addConstr(sum(neighborhoods_match.select(i, j, '*'))-obeys_orderings[i,j] <= num_node_features, name=f"nb_ordering_{i}_{j}")
+
+        weighted_feature_sums = A @ (X @ np.linspace(1,num_node_features, num=num_node_features))
+        for j in range(1, num_nodes):
+            # TODO: Fix for directed graphs, integer features
+            m.addConstr(sum(A[0])*num_node_features*num_nodes+sum(weighted_feature_sums[0]) <= sum(A[j])*num_node_features*num_nodes+sum(weighted_feature_sums[j]), name=f"node_0_smallest_{j}")
+        m.update()
 
     ## Build a MIQCP for the trained neural network
     output_vars = OrderedDict()
@@ -209,7 +248,7 @@ if __name__ == "__main__":
     if "Squared L2" in sim_methods:
         # Squared L2 Distance
         squared_l2_similarity = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2), name="l2_distance")
-        m.addConstr(squared_l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
+        m.addConstr(squared_l2_similarity >= gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
         regularizers["Squared L2"] = squared_l2_similarity
 
     m.update()
@@ -221,7 +260,7 @@ if __name__ == "__main__":
     max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]
     # for var in other_outputs_vars:
     #     m.addConstr(var <= max_output_var)
-    m.setObjective(max_output_var+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
+    m.setObjective(max_output_var-sum(other_outputs_vars)+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
 
     m.update()
     m.write("model.lp")
@@ -244,8 +283,9 @@ if __name__ == "__main__":
 
             ## Sanity Check
             sol_output = nn.forwardXA(X_sol, A_sol).detach().numpy()
-            print("NN output given X:", sol_output.squeeze())
-            print("predicted output:", output_var_value.squeeze())
+            # print("NN output given X:", sol_output.squeeze())
+            # print("predicted output:", output_var_value.squeeze())
+            assert np.allclose(sol_output, output_var_value), "UH OH!"
 
             embedding_var_value = model.cbGetSolution(embedding)
 
