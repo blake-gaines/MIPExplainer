@@ -271,12 +271,27 @@ if __name__ == "__main__":
 
     # Define the callback function
     solutions = []
+    previous_var_values = [None]*len(m.getVars())
     def callback(model, where):
         global A, X, solutions
         if where == GRB.Callback.MIPSOL:
             # A new incumbent solution has been found
             print(f"New incumbent solution found (ID {len(solutions)}) Objective value: {model.cbGet(GRB.Callback.MIPSOL_OBJ)}")
 
+            # print("Variables Changed:")
+            n_changed = 0
+            changed_vars = []
+            vars = m.getVars()
+            for i in range(len(vars)):
+                prev_value = previous_var_values[i]
+                var = vars[i]
+                new_value = model.cbGetSolution(var)
+                if prev_value != new_value:
+                    # print("  ", var.VarName)
+                    n_changed += 1
+                    changed_vars.append(var.VarName)
+                previous_var_values[i] = new_value
+            print(f"{n_changed} variables different from previous solution.")
             X_sol = model.cbGetSolution(X)
             A_sol = model.cbGetSolution(A)
             output_var_value = model.cbGetSolution(output_vars["Output"])
@@ -309,6 +324,7 @@ if __name__ == "__main__":
                 "time": time.time(),
                 "Objective Value": model.cbGet(GRB.Callback.MIPSOL_OBJ),
                 "Upper Bound": model.cbGet(GRB.Callback.MIPSOL_OBJBND),
+                "Variables Changed": n_changed,
             }
             solution.update(similarities)
             solutions.append(solution)
