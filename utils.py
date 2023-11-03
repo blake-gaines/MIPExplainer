@@ -6,7 +6,7 @@ import matplotlib.colors as mcolors
 import random
 from torch_geometric.utils import to_networkx
 
-def draw_graph(A=None, X=None, edge_index=None, data=None, label_dict=None, color_dict=None, directed=True, **kwargs):
+def draw_graph(A=None, X=None, edge_index=None, data=None, label_dict=None, color_dict=None, directed=True, with_labels=True, **kwargs):
     random.seed(7)
     if isinstance(A, torch.Tensor): A = A.detach().numpy()
     if isinstance(X, torch.Tensor): X = X.detach().numpy()
@@ -39,7 +39,7 @@ def draw_graph(A=None, X=None, edge_index=None, data=None, label_dict=None, colo
         node_color = list(map(lambda i: color_dict.get(i, "skyblue"), x_indices))
 
     fig, ax = plt.subplots()
-    nx.draw_networkx(G, pos=pos, with_labels=True, labels=labels, node_color=node_color, **kwargs)
+    nx.draw_networkx(G, pos=pos, with_labels=with_labels, labels=labels, node_color=node_color, **kwargs)
 
     return fig, ax
 
