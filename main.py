@@ -19,51 +19,60 @@ import matplotlib.pyplot as plt
 import sys
 from torch_geometric.utils import from_networkx, to_networkx
 
-log_run = False
+# Log with wandb
+log_run = True
 
 torch.manual_seed(12345)
+# TODO: Seed for Gurobi
 
 print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
 
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-dataset_name = "MUTAG"
-model_path = f"models/MUTAG_model.pth"
-dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+dataset_name = "MUTAG" # {"MUTAG", "Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
+model_path = f"models/{dataset_name}_model.pth"
+if dataset_name == "MUTAG":
+    dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
+else:
+    with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
-# dataset_name = "Is_Acyclic" # {"Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
-# model_path = f"models/{dataset_name}_model.pth"
-# with open(f"data/{dataset_name}/dataset.pkl", "rb") as f: dataset = pickle.load(f)
-
+# Count classes in dataset, node features
 ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
-print(num_classes)
+num_node_features = dataset[0].x.shape[1]
+print("Number of Classes", num_classes)
+print("Number of Node Features", num_node_features)
 
-max_class = 0
+# TODO: Get arguments from YAML
+max_class = 0 # Index of the logit that we want to maximize
 output_file = "./solutions.pkl"
 param_file = "./tune0.prm"
-sim_methods = []
+sim_methods = ["Cosine"] # Which similarity/distance metrics we want to add regularizers for
 sim_weights = {
     "Cosine": 10,
     "Squared L2": -0.01,
     "L2": -1,
 }
+
+# This parameter excludes non-maximized outputs from the model
 trim_unneeded_outputs = False
 
-num_node_features = dataset[0].x.shape[1]
-init_with_data = False
-init_index = 0
-num_nodes = 5
+init_with_data = False # If true, initialize with the graph in the dataset (index of init_index), otherwise start with a predefined graph
+init_index = 0 # Index of initialization graph
+num_nodes = 5 # Number of ndoes in the predefined graph
 
 def canonicalize_graph(graph):
+    # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
+    # TODO: Generalize to non one-hot vector node features
+
     G = to_networkx(init_graph)
 
+    # Get source node for DFS, should be largest degree/first lexicographically (TODO)
     A = to_dense_adj(graph.edge_index).detach().numpy().squeeze()
     weighted_feature_sums = A @ (graph.x.detach().numpy() @ np.linspace(1,graph.num_node_features, num=graph.num_node_features))
-    # import pdb; pdb.set_trace()
     min_node=np.argmin(A.sum(axis=0)*num_node_features*num_nodes+weighted_feature_sums)
 
-    # Sort nodes by degree
+    # Get node ordering
     sorted_nodes = list(nx.dfs_preorder_nodes(G, source=min_node))
     sorted_nodes.reverse()
 
@@ -77,10 +86,12 @@ def canonicalize_graph(graph):
     graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
 
 if __name__ == "__main__":
+    # Load the model
     nn = torch.load(model_path)
     nn.eval()
     nn.to(torch.float64)
     
+    # Track hyperparameters
     if log_run:
         import wandb
         wandb.login()
@@ -119,6 +130,7 @@ if __name__ == "__main__":
         num_nodes = init_graph.num_nodes
 
     else:
+        # By default, will generate a line graph with uniform random node features
         print(f"Initializing with dummy graph")
         # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
         init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
@@ -133,6 +145,7 @@ if __name__ == "__main__":
 
         canonicalize_graph(init_graph)
 
+    # Each row of phi is the average embedding of the graphs in the corresponding class of the dataset
     phi = get_average_phi(dataset, nn, "Aggregation")
 
     print(nn)
@@ -140,40 +153,29 @@ if __name__ == "__main__":
 
     m = gp.Model("GNN Inverse")
 
+    # Add and constrain decision variables for adjacency matrix
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
     force_connected(m, A)
-    force_undirected(m, A) # Generate an undirected graph
+    force_undirected(m, A)
     remove_self_loops(m, A)
-    # m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
+    # m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work. UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
 
 
-
+    # Add and constrain decision variables for node feature matrix
     if dataset_name in ["MUTAG", "OurMotifs"]:
         X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
         m.addConstr(gp.quicksum(X.T) == 1, name="categorical_features")
     elif dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
         X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
-        # X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.CONTINUOUS)
         m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
     else:
         raise ValueError(f"Unknown Decision Variables for {dataset_name}")
-
-    # m.update()
-    # neighborhoods_match = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="neighborhoods_match")
-    # obeys_orderings = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="obeys_orderings")
-    # for i in range(num_nodes-1):
-    #     for j in range(i+1, A.shape[0]):
-    #         m.addGenConstrIndicator(neighborhoods_match[i,j], 1, sum(A[i]-A[j]), GRB.EQUAL, 0, name=f"neighborhood_match_constraint_{i}_{j}")
-    #         if X[0][0].vtype == GRB.BINARY:
-    #             # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
-    #             m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features-1)), GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
-    #         elif X[0][0].vtype == GRB.INTEGER and num_node_features == 1:
-    #             m.addGenConstrIndicator(obeys_orderings[i,j], 1, X[i][0]-X[j][0], GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
-    #         m.addConstr(obeys_orderings[i,j]-neighborhoods_match[i,j] >= 1, name=f"nb_ordering_{i}_{j}")
     
+    # Enforce canonical (maybe) representation
+    # Only works for one-hot node features and assumes an undirected graph
     m.update()
     if X[0][0].vtype == GRB.BINARY:
-        # messages [i][j][k] is the kth dimension of the message from [i] to [j]
+        # messages [i][j][k] is 1 if node i is a neighbor of node j and node i's feature k is 1
         messages = m.addMVar((num_nodes, num_nodes, num_node_features), vtype=GRB.BINARY)
         messages = m.addVars([(i,j,k) for i in range(num_nodes) for j in range(num_nodes) for k in range(num_node_features)], vtype=GRB.BINARY, name="initial_messages_constraint")
         for i in range(num_nodes):
@@ -181,24 +183,29 @@ if __name__ == "__main__":
                 for k in range(num_node_features):
                     m.addGenConstrIndicator(messages[i,j,k], 1, A[i,j]+X[i,k], GRB.EQUAL, 2, name=f"initial_message_{i}_{j}_{k}")
 
+        # neighborhoods_match[i,j,k] is a binary decision variable, constrained to 1 if node i and node j have the same number of neighbors with feature k equal to 1, 0 otherwise
         neighborhoods_match = m.addVars([(i,j,k) for i in range(num_nodes-1) for j in range(i+1, num_nodes) for k in range(num_node_features)], vtype=GRB.BINARY, name="neighborhoods_match")
+        # obeys_orderings is only 1 if two nodes have the correct partial ordering based on their node features
+        # If they have the same neighborhood, then the node with the smaller features lexicographically should come first in the ordering
         obeys_orderings = m.addVars([(i,j) for i in range(num_nodes-1) for j in range(i+1, num_nodes)], vtype=GRB.BINARY, name="obeys_orderings")
         for i in range(num_nodes-1):
             for j in range(i+1, num_nodes):
                 for k in range(num_node_features):
-                    # TODO: Fix for directed graphs, integer features
+                    # Constrain the neighborhoods_match variables to the correct values
                     i_neighborhood_ks = messages.select(i,'*',k)
                     i_neighborhood_ks.pop(i)
                     j_neighborhood_ks = messages.select(j,'*',k)
                     j_neighborhood_ks.pop(j)
                     m.addGenConstrIndicator(neighborhoods_match[i,j,k], 1, sum(i_neighborhood_ks)-sum(j_neighborhood_ks), GRB.EQUAL, 0, name=f"neighborhood_match_constraint_{i}_{j}_{k}")
 
-                    # For each k in the number
-                    #  of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
+                # Constrain the obeys_orderings variables to the correct values
+                # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
                 m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features)), GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
+                
                 # If the neighborhoods match, the ordering must be obeyed
-                m.addConstr(sum(neighborhoods_match.select(i, j, '*'))-obeys_orderings[i,j] <= num_node_features, name=f"nb_ordering_{i}_{j}")
+                m.addConstr(sum(neighborhoods_match.select(i, j, '*'))-obeys_orderings[i,j] <= num_node_features-1, name=f"nb_ordering_{i}_{j}")
 
+        ## The first node will have the highest degree and come first lexicographically among nodes with the highest degree
         weighted_feature_sums = A @ (X @ np.linspace(1,num_node_features, num=num_node_features))
         for j in range(1, num_nodes):
             # TODO: Fix for directed graphs, integer features
@@ -206,6 +213,7 @@ if __name__ == "__main__":
         m.update()
 
     ## Build a MIQCP for the trained neural network
+    ## For each layer, create and constrain decision variables to represent the output
     output_vars = OrderedDict()
     output_vars["Input"] = X
     for name, layer in nn.layers.items():
@@ -223,16 +231,17 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
         
+    ## Create decision variables to represent (unweighted) regularizer terms based on embedding similarity/distance
+    ## These can also be used in constraints!!!
     embedding = output_vars["Aggregation"][0]
     regularizers = {}
     if "Cosine" in sim_methods:
-        cosine_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity")
-
         # Cosine Similarity
-        embedding_magnitude = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2)**0.5, name="embedding_magnitude")
+        cosine_similarity = m.addVar(lb=0, ub=1, name="embedding_similarity") # Add variables for cosine similarity
+        embedding_magnitude = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2)**0.5, name="embedding_magnitude") # Variables for embedding magnitude, intermediate value in calculation
         phi_magnitude = np.linalg.norm(phi[max_class])
         m.addGenConstrNorm(embedding_magnitude, embedding, which=2, name="embedding_magnitude_constraint")
-        m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*cosine_similarity, name="cosine_similarity")
+        m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*cosine_similarity, name="cosine_similarity") # u^Tv=|u||v|cos_sim(u,v)
         regularizers["Cosine"] = cosine_similarity
 
         # Cosine Similarity
@@ -242,34 +251,40 @@ if __name__ == "__main__":
         # m.addConstr(gp.quicksum(embedding*phi[max_class]) == embedding_magnitude*phi_magnitude*embedding_similarity, name="embedding_similarity")
     if "L2" in sim_methods:
         # L2 Distance
-        l2_similarity = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2)**0.5, name="l2_distance")
-        m.addConstr(l2_similarity*l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
+        l2_similarity = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2)**0.5, name="l2_distance") # Add variables for L2 Distance
+        m.addConstr(l2_similarity*l2_similarity == gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity") # l2_dist(u,v)^2 = (u-v)^T(u-v)
         regularizers["L2"] = l2_similarity
     if "Squared L2" in sim_methods:
         # Squared L2 Distance
-        squared_l2_similarity = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2), name="l2_distance")
-        m.addConstr(squared_l2_similarity >= gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity")
+        squared_l2_similarity = m.addVar(lb=0, ub=sum(embedding.getAttr("ub")**2), name="l2_distance") # Add variables for Squared L2 Distance
+        m.addConstr(squared_l2_similarity >= gp.quicksum((phi[max_class]-embedding)*(phi[max_class]-embedding)), name="l2_similarity") # l2_dist(u,v)^2 = (u-v)^T(u-v)
         regularizers["Squared L2"] = squared_l2_similarity
-
     m.update()
+
+    # List of decision variables representing the logits that are not the max_class logit
     other_outputs_vars = [output_vars["Output"][0, j] for j in range(num_classes) if j!=max_class]
-    # other_outputs_max = m.addVar(name="other_outputs_max", lb=max(v.getAttr("lb") for v in other_outputs_vars), ub=max(v.getAttr("ub") for v in other_outputs_vars))
-    # m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
-        
-    ## MIQCP objective function
-    max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]
+
+    # # Constrain other_outputs_vars to be at most the one we want to maximize
     # for var in other_outputs_vars:
     #     m.addConstr(var <= max_output_var)
-    m.setObjective(max_output_var-sum(other_outputs_vars)+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
 
+    # # Create a decision variable and constrain it to the maximum of the non max_class logits
+    # other_outputs_max = m.addVar(name="other_outputs_max", lb=max(v.getAttr("lb") for v in other_outputs_vars), ub=max(v.getAttr("ub") for v in other_outputs_vars))
+    # m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
+
+    max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]  
+    ## MIQCP objective function
+    m.setObjective(max_output_var-sum(other_outputs_vars)+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
     m.update()
+
+    # Save a copy of the model
     m.write("model.lp")
     m.write("model.mps")
     if log_run:
         wandb.save("model.lp", policy="now")
         wandb.save("model.mps", policy="now")
 
-    # Define the callback function
+    # Define the callback function for the solver to save intermediate solutions, other emtrics
     solutions = []
     previous_var_values = [None]*len(m.getVars())
     def callback(model, where):
@@ -278,7 +293,7 @@ if __name__ == "__main__":
             # A new incumbent solution has been found
             print(f"New incumbent solution found (ID {len(solutions)}) Objective value: {model.cbGet(GRB.Callback.MIPSOL_OBJ)}")
 
-            # print("Variables Changed:")
+            # See which variables were changed from the previous solution
             n_changed = 0
             changed_vars = []
             vars = m.getVars()
@@ -287,23 +302,22 @@ if __name__ == "__main__":
                 var = vars[i]
                 new_value = model.cbGetSolution(var)
                 if prev_value != new_value:
-                    # print("  ", var.VarName)
                     n_changed += 1
-                    changed_vars.append(var.VarName)
+                    changed_vars.append((var.VarName, prev_value, new_value))
                 previous_var_values[i] = new_value
             print(f"{n_changed} variables different from previous solution.")
+
             X_sol = model.cbGetSolution(X)
             A_sol = model.cbGetSolution(A)
             output_var_value = model.cbGetSolution(output_vars["Output"])
 
-            ## Sanity Check
+            ## Sanity Check, ensure that the decision variables for the network's output actually match the network's output
             sol_output = nn.forwardXA(X_sol, A_sol).detach().numpy()
-            # print("NN output given X:", sol_output.squeeze())
-            # print("predicted output:", output_var_value.squeeze())
-            assert np.allclose(sol_output, output_var_value), "UH OH!"
+            assert np.allclose(sol_output, output_var_value), "uh oh :("
 
+            # Manually calculate and save regularizer values
+            # This way, decision variables for regularizers can just be bounded above/below by the correct value if that helps
             embedding_var_value = model.cbGetSolution(embedding)
-
             similarities = {}
             for sim_method in sim_methods:
                 if sim_method == "Cosine":
@@ -316,7 +330,6 @@ if __name__ == "__main__":
                 embedding_sim_var_value = model.cbGetSolution(regularizers[sim_method])
                 print(f"Predicted {sim_method} vs Actual:", embedding_sim_var_value, sol_similarity)
 
-            
             solution = {
                 "X": X_sol,
                 "A": A_sol,
@@ -325,6 +338,7 @@ if __name__ == "__main__":
                 "Objective Value": model.cbGet(GRB.Callback.MIPSOL_OBJ),
                 "Upper Bound": model.cbGet(GRB.Callback.MIPSOL_OBJBND),
                 "Variables Changed": n_changed,
+                "Changed Variables": changed_vars,
             }
             solution.update(similarities)
             solutions.append(solution)
@@ -339,32 +353,33 @@ if __name__ == "__main__":
             with open(output_file, "wb") as f:
                 pickle.dump(solutions, f)
 
-    ## Start with a graph from the dataset
+    ## Warm start - create an initial solution for the model
+    # TODO: Initial values for canonicalization variables (not currently a problem, the solver completes the partial solution)
     m.NumStart = 1
-    # m.update()
-    # for s in range(m.NumStart):
-    #     m.params.StartNumber = s
     init_graph.x = init_graph.x.to(torch.float64)
-    init_graph.edge_index = to_undirected(init_graph.edge_index)
-    # X.Start = G.x.detach().numpy()
+    init_graph.edge_index = to_undirected(init_graph.edge_index) ## TODO: Remove
+
     A.Start = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
-    all_outputs = nn.get_all_layer_outputs(init_graph)
+    all_outputs = nn.get_all_layer_outputs(init_graph) # Get the outputs of each layer from the GNN given the init_graph
     all_ub, all_lb = [], []
     assert len(all_outputs) == len(output_vars), (len(all_outputs), len(output_vars))
+    # Creates starts for each layer in the model, including the inputs
     for var, name_output in zip(output_vars.values(), all_outputs):
         layer_name = name_output[0]
         # var = output_vars[layer_name]
         output = name_output[1].detach().numpy()
         if trim_unneeded_outputs and layer_name == "Output": 
             output = output[:, max_class][np.newaxis, :]
-        # var.setAttr("lb", var.getAttr("lb").clip(min=-128, max=128))
-        # var.setAttr("ub", var.getAttr("ub").clip(min=-128, max=128))
         m.update()
+
+        # Allows us to check ranges for bounds
         all_lb.extend(var.getAttr("lb").flatten().tolist())
         all_ub.extend(var.getAttr("ub").flatten().tolist())
+
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
         assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.shape, var.getAttr("lb").min(), output.min(), np.greater(var.getAttr("lb"), output).sum())
         assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.shape, var.getAttr("ub").max(), output.max(), np.less(var.getAttr("ub"), output).sum())
+        
         var.Start = output
 
         ## Fix outputs for debugging
@@ -379,18 +394,18 @@ if __name__ == "__main__":
                     regularizers[sim_method].Start = np.sqrt(sum((output[0] - phi[max_class])*(output[0]- phi[max_class])))
                 elif sim_method == "Squared L2":
                     regularizers[sim_method].Start = sum((output[0] - phi[max_class])*(output[0] - phi[max_class]))
-        #     m.addConstr(gp.quicksum((output - var)*(output - var)) <= 0.1) #######################################
     m.update()
-    # print((np.array(all_ub) < 0).sum()/len(all_ub))
+
     print(f"Lowest Lower Bound: {min(all_lb)} | Highest Upper Bound: {max(all_ub)}, | Min AV Bound: {min([b for b in np.abs(all_lb+all_ub) if b>0])}")
 
+    # Check variables are bounded or binary
     for var in m.getVars():
         assert var.vtype==GRB.BINARY or (var.LB != float('-inf') and var.UB != float('inf')), f"Variable {var.VarName} is unbounded."
 
-    # Use tuned parameters
+    # Get solver parameters
     m.read(param_file)
     
-    # # # Tune
+    # # Tune solver parameters
     # print("Tuning")
     # # m.setParam("TuneTimeLimit", 3600*48)
     # m.tune()
@@ -400,19 +415,17 @@ if __name__ == "__main__":
     # print("Done Tuning")
 
     m.setParam("TimeLimit", 3600*48)
-    # m.setParam("PreQLinearize", 2) # TODO: Chose between 1 and 2
+
     m.optimize(callback)
 
+    # Save all solutions
     with open(output_file, "wb") as f:
         pickle.dump(solutions, f)
 
-    print("Status:", m.Status)
+    print("Model Status:", m.Status)
 
     if m.Status in [3, 4]: # If the model is infeasible, see why
         m.computeIIS()
         m.write("model.ilp")
-    else:
-        print("NN output given X", nn.forwardXA(X.X, A.X))
-        print("predicted output", output_vars["Output"].X)
 
 print(time.strftime("\nEnd Time: %H:%M:%S", time.localtime()))
