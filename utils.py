@@ -59,9 +59,3 @@ def get_average_phi(dataset, nn, layer_name):
         embedding_sum[data.y] += torch.sum(embeddings, dim=0)
         n_instances[data.y] += 1
     return (embedding_sum / torch.unsqueeze(n_instances, 1)).detach().numpy()
-
-def get_matmul_bounds(MVar, W):
-    lower_bounds = ((MVar.getAttr("lb") @ W.clip(min=0)) + (MVar.getAttr("ub") @ W.clip(max=0))).squeeze()
-    upper_bounds = ((MVar.getAttr("ub") @ W.clip(min=0)) + (MVar.getAttr("lb") @ W.clip(max=0))).squeeze()
-    assert np.less_equal(lower_bounds, upper_bounds).all()
-    return lower_bounds, upper_bounds
