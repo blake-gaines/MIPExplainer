@@ -51,7 +51,7 @@ def add_relu_constraint(model, X, name=None):
     ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts") #.clip(min=0, max=big_number)
     ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0), name=f"{name}_ss") #.clip(min=0, max=big_number)
     model.update()
-    zs = model.addMVar(X.shape, vtype=GRB.BINARY)
+    zs = model.addMVar(X.shape, vtype=GRB.BINARY, name=f"{name}_zs")
     model.addConstr(ts - ss == X, name=f"{name}_constraint_1" if name else None)
     model.addConstr(ts <= ts.getAttr("ub")*zs, name=f"{name}_constraint_2" if name else None)
     model.addConstr(ss <= ss.getAttr("ub")*(1-zs), name=f"{name}_constraint_3" if name else None)
