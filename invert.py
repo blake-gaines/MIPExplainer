@@ -96,6 +96,8 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
 
 def global_add_pool(model, X, name=None):
     sums = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
+    sums.setAttr("lb", X.getAttr("lb").sum(axis=0))
+    sums.setAttr("ub", X.getAttr("ub").sum(axis=0))
     model.addConstr(sums == gp.quicksum(X), name=f"{name}_constraint" if name else None)
     return sums[np.newaxis, :]
 
