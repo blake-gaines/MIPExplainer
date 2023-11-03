@@ -22,10 +22,10 @@ Clone the project
 Go to the project directory
 
 ```bash
-  cd my-project
+  cd Invert-GNNs
 ```
 
-Install dependencies listed in [environment.yml](./environment.yml). If using Conda you can run the following command
+Install dependencies listed in [environment.yml](./environment.yml). If using Conda you can run the following command:
 ```bash
   conda env create -f environment.yml
 ```
