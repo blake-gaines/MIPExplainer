@@ -116,9 +116,12 @@ if __name__ == "__main__":
         wandb.run.log_code(".")
 
     if init_with_data:
-        # print(f"Initializing with solution from graph {init_index}")
-        # init_graph = dataset[init_index]
-        init_graph = [d for d in dataset if int(d.y) == max_class and d.num_nodes == num_nodes][0]
+        if init_index is not None:
+            print(f"Initializing from dataset with graph at index {init_index}")
+            init_graph = dataset[init_index]
+        elif num_nodes is not None:
+            print(f"Initializing from dataset graph with {num_nodes} nodes")
+            init_graph = random.choice([d for d in dataset if int(d.y) == max_class and d.num_nodes == num_nodes])
         A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
         print("Connected before reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
 
