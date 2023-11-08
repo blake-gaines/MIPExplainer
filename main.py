@@ -17,7 +17,7 @@ from utils import *
 import matplotlib.pyplot as plt
 import sys
 from torch_geometric.utils import from_networkx, to_networkx
-from parser import parse_args
+from arg_parser import parse_args
 
 args = parse_args()
 
