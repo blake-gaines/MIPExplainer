@@ -2,7 +2,6 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
-M = 256
 big_number = 256
 
 def get_matmul_bounds(MVar, W):
@@ -50,7 +49,7 @@ def force_connected(model, A):
 def add_relu_constraint(model, X, name=None):
     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
     model.update()
-    ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts") #.clip(min=0, max=big_number)
+    ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts")
     ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0), name=f"{name}_ss") #.clip(min=0, max=big_number)
     model.update()
     zs = model.addMVar(X.shape, vtype=GRB.BINARY, name=f"{name}_zs")
@@ -103,18 +102,15 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
 
 def global_add_pool(model, X, name=None):
     # Outputs variables constrained to the sum of node features element-wise
-    sums = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
-    sums.setAttr("lb", X.getAttr("lb").sum(axis=0))
-    sums.setAttr("ub", X.getAttr("ub").sum(axis=0))
+    model.update()
+    sums = model.addMVar((X.shape[1],), lb=X.getAttr("lb").sum(axis=0), ub=X.getAttr("ub").sum(axis=0), name=name)
     model.addConstr(sums == gp.quicksum(X), name=f"{name}_constraint" if name else None)
     return sums[np.newaxis, :]
 
 def global_mean_pool(model, X, name=None):
     # Outputs variables constrained to the mean of node features element-wise
     model.update()
-    averages = model.addMVar((X.shape[1],), lb=-big_number, ub=big_number, name=name)
-    averages.setAttr("lb", (X.getAttr("lb").sum(axis=0)/X.shape[0]))
-    averages.setAttr("ub", (X.getAttr("ub").sum(axis=0)/X.shape[0]))
+    averages = model.addMVar((X.shape[1],), lb=X.getAttr("lb").sum(axis=0)/X.shape[0], ub=X.getAttr("ub").sum(axis=0)/X.shape[0], name=name)
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages[np.newaxis, :]
 

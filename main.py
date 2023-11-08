@@ -88,7 +88,6 @@ if __name__ == "__main__":
             # Track hyperparameters and run metadata
             config={
             "architecture": str(nn),
-            "M": M,
             "big_number": big_number,
             "model_path": model_path, 
             }.update(args)
