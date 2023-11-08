@@ -20,8 +20,9 @@ def add_fc_constraint(model, X, W, b, name=None):
     return ts[np.newaxis, :]
 
 def add_gcn_constraint(model, A, X, W, b, name=None): # Unnormalized Adjacency Matrix
-    # TODO: Bound
-    ts = model.addMVar((A.shape[0], W.shape[1]), lb=-big_number, ub=big_number, name=f"{name}_t" if name else None)
+    model.update()
+    lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
+    ts = model.addMVar((A.shape[0], W.shape[1]), lb=lower_bounds+b, ub=upper_bounds+b, name=f"{name}_t" if name else None)
     model.addConstr(ts == A @ X @ W + b, name=f"{name}_output_constraint" if name else None)
     return ts
 
