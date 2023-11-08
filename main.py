@@ -10,7 +10,6 @@ import os
 from torch.nn import Linear, ReLU
 from torch_geometric.nn.aggr import Aggregation, SumAggregation, MeanAggregation, MaxAggregation
 from torch_geometric.nn import SAGEConv
-import time
 from torch_geometric.datasets import TUDataset
 import pickle
 from collections import OrderedDict
@@ -18,19 +17,28 @@ from utils import *
 import matplotlib.pyplot as plt
 import sys
 from torch_geometric.utils import from_networkx, to_networkx
+from parser import parse_args
 
-# Log with wandb
-log_run = True
+args = parse_args()
+
+dataset_name = args.dataset_name
+model_path = args.model_path
+max_class = args.max_class
+output_file = args.output_file
+sim_weights = dict(zip(args.regularizers, args.regularizer_weights))
+sim_methods = args.regularizers
+num_nodes = args.num_nodes
+
+print("ARGS:", args)
+
+if not model_path:
+    model_path = f"models/{dataset_name}_model.pth"
 
 torch.manual_seed(12345)
 # TODO: Seed for Gurobi
 
-print(time.strftime("\nStart Time: %H:%M:%S", time.localtime()))
-
 if not os.path.isdir("solutions"): os.mkdir("solutions")
 
-dataset_name = "MUTAG" # {"MUTAG", "Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"}
-model_path = f"models/{dataset_name}_model.pth"
 if dataset_name == "MUTAG":
     dataset = TUDataset(root='data/TUDatascet', name='MUTAG')
 else:
@@ -40,26 +48,6 @@ else:
 ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
 num_node_features = dataset[0].x.shape[1]
-print("Number of Classes", num_classes)
-print("Number of Node Features", num_node_features)
-
-# TODO: Get arguments from YAML
-max_class = 0 # Index of the logit that we want to maximize
-output_file = "./solutions.pkl"
-param_file = "./tune0.prm"
-sim_methods = ["Cosine"] # Which similarity/distance metrics we want to add regularizers for
-sim_weights = {
-    "Cosine": 10,
-    "Squared L2": -0.01,
-    "L2": -1,
-}
-
-# This parameter excludes non-maximized outputs from the model
-trim_unneeded_outputs = False
-
-init_with_data = False # If true, initialize with the graph in the dataset (index of init_index), otherwise start with a predefined graph
-init_index = 0 # Index of initialization graph
-num_nodes = 5 # Number of ndoes in the predefined graph
 
 def canonicalize_graph(graph):
     # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
@@ -92,7 +80,7 @@ if __name__ == "__main__":
     nn.to(torch.float64)
     
     # Track hyperparameters
-    if log_run:
+    if args.log:
         import wandb
         wandb.login()
         wandb.init(
@@ -100,25 +88,22 @@ if __name__ == "__main__":
             # Track hyperparameters and run metadata
             config={
             "architecture": str(nn),
-            "dataset": dataset_name,
-            "max_class": max_class,
-            "output_file": output_file,
-            "sim_weights": sim_weights,
-            "sim_methods": sim_methods,
             "M": M,
             "big_number": big_number,
-            "init_with_data": init_with_data,
             "model_path": model_path, 
-            "param_file": param_file, 
-        })
-        wandb.save(param_file, policy="now")
+            }.update(args)
+        )
+        wandb.save(args.param_file, policy="now")
         wandb.save(output_file, policy="end")
         wandb.run.log_code(".")
 
-    if init_with_data:
-        if init_index is not None:
-            print(f"Initializing from dataset with graph at index {init_index}")
-            init_graph = dataset[init_index]
+    print("Number of Classes", num_classes)
+    print("Number of Node Features", num_node_features)
+
+    if args.init_with_data:
+        if args.init_index is not None:
+            print(f"Initializing from dataset with graph at index {args.init_index}")
+            init_graph = dataset[args.init_index]
         elif num_nodes is not None:
             print(f"Initializing from dataset graph with {num_nodes} nodes")
             init_graph = random.choice([d for d in dataset if int(d.y) == max_class and d.num_nodes == num_nodes])
@@ -128,7 +113,7 @@ if __name__ == "__main__":
         canonicalize_graph(init_graph)
 
         A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
-        assert all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]), "Graph was not connected"
+        assert all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]), "Initialization graph was not connected"
 
         num_nodes = init_graph.num_nodes
 
@@ -222,7 +207,7 @@ if __name__ == "__main__":
     for name, layer in nn.layers.items():
         previous_layer_output = output_vars[next(reversed(output_vars))]
         if isinstance(layer, Linear):
-            output_vars[name] = torch_fc_constraint(m, previous_layer_output, layer, name=name, max_output=max_class if trim_unneeded_outputs and name == "Output" else None)
+            output_vars[name] = torch_fc_constraint(m, previous_layer_output, layer, name=name, max_output=max_class if args.trim_unneeded_outputs and name == "Output" else None)
         elif isinstance(layer, SAGEConv):
             output_vars[name] = torch_sage_constraint(m, A, previous_layer_output, layer, name=name)
         elif isinstance(layer, MeanAggregation):
@@ -282,7 +267,7 @@ if __name__ == "__main__":
     # other_outputs_max = m.addVar(name="other_outputs_max", lb=max(v.getAttr("lb") for v in other_outputs_vars), ub=max(v.getAttr("ub") for v in other_outputs_vars))
     # m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
 
-    max_output_var = output_vars["Output"][0] if trim_unneeded_outputs else output_vars["Output"][0, max_class]  
+    max_output_var = output_vars["Output"][0] if args.trim_unneeded_outputs else output_vars["Output"][0, max_class]  
     ## MIQCP objective function
     m.setObjective(max_output_var-sum(other_outputs_vars)+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
     m.update()
@@ -290,7 +275,7 @@ if __name__ == "__main__":
     # Save a copy of the model
     m.write("model.lp")
     m.write("model.mps")
-    if log_run:
+    if args.log:
         wandb.save("model.lp", policy="now")
         wandb.save("model.mps", policy="now")
 
@@ -344,7 +329,6 @@ if __name__ == "__main__":
                 "X": X_sol,
                 "A": A_sol,
                 "Output": sol_output,
-                "time": time.time(),
                 "Objective Value": model.cbGet(GRB.Callback.MIPSOL_OBJ),
                 "Upper Bound": model.cbGet(GRB.Callback.MIPSOL_OBJBND),
                 "Variables Changed": n_changed,
@@ -353,7 +337,7 @@ if __name__ == "__main__":
             solution.update(similarities)
             solutions.append(solution)
 
-            if log_run:
+            if args.log:
                 fig, _ = draw_graph(A_sol, X_sol)
                 wandb.log(solutions[-1], commit=False)
                 wandb.log({f"Output Logit {i}": sol_output[0, i] for i in range(sol_output.shape[1])}, commit=False)
@@ -378,7 +362,7 @@ if __name__ == "__main__":
         layer_name = name_output[0]
         # var = output_vars[layer_name]
         output = name_output[1].detach().numpy()
-        if trim_unneeded_outputs and layer_name == "Output": 
+        if args.trim_unneeded_outputs and layer_name == "Output": 
             output = output[:, max_class][np.newaxis, :]
         m.update()
 
@@ -413,7 +397,7 @@ if __name__ == "__main__":
         assert var.vtype==GRB.BINARY or (var.LB != float('-inf') and var.UB != float('inf')), f"Variable {var.VarName} is unbounded."
 
     # Get solver parameters
-    m.read(param_file)
+    m.read(args.param_file)
     
     # # Tune solver parameters
     # print("Tuning")
@@ -437,5 +421,3 @@ if __name__ == "__main__":
     if m.Status in [3, 4]: # If the model is infeasible, see why
         m.computeIIS()
         m.write("model.ilp")
-
-print(time.strftime("\nEnd Time: %H:%M:%S", time.localtime()))
