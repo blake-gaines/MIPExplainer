@@ -75,7 +75,7 @@ def canonicalize_graph(graph):
 
 if __name__ == "__main__":
     # Load the model
-    nn = torch.load(model_path)
+    nn = torch.load(model_path, fix_imports=True)
     nn.eval()
     nn.to(torch.float64)
     
@@ -90,7 +90,7 @@ if __name__ == "__main__":
             "architecture": str(nn),
             "big_number": big_number,
             "model_path": model_path, 
-            }.update(args)
+            }.update(vars(args))
         )
         wandb.save(args.param_file, policy="now")
         wandb.save(output_file, policy="end")
