@@ -29,8 +29,6 @@ sim_weights = dict(zip(args.regularizers, args.regularizer_weights))
 sim_methods = args.regularizers
 num_nodes = args.num_nodes
 
-print("ARGS:", args)
-
 if not model_path:
     model_path = f"models/{dataset_name}_model.pth"
 
@@ -96,6 +94,7 @@ if __name__ == "__main__":
         wandb.save(output_file, policy="end")
         wandb.run.log_code(".")
 
+    print("Args:", args)
     print("Number of Classes", num_classes)
     print("Number of Node Features", num_node_features)
 
