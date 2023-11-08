@@ -81,14 +81,15 @@ if __name__ == "__main__":
     if args.log:
         import wandb
         wandb.login()
-        wandb.init(
-            project="GNN-Inverter", 
-            # Track hyperparameters and run metadata
-            config={
+        config = {
             "architecture": str(nn),
             "big_number": big_number,
             "model_path": model_path, 
-            }.update(vars(args))
+            }
+        config.update(vars(args))
+        wandb.init(
+            project="GNN-Inverter", 
+            config=config,
         )
         wandb.save(args.param_file, policy="now")
         wandb.save(output_file, policy="end")
