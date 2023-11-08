@@ -10,8 +10,8 @@ def parse_args():
     
     parser.add_argument("--model_path", type=str, help="Path to model file")
 
-    parser.add_argument("-r", "--regularizers", type=str, action="extend", choices=["Cosine", "Squared L2", "L2"], default=[], help="Names of regularizers to apply")
-    parser.add_argument("--regularizer_weights", type=float, action="extend", default=[], help="Regularizer weights, with order corresponding to the names provided to the 'regularizers' argument")
+    parser.add_argument("-r", "--regularizers", type=str, action="extend", nargs="+", choices=["Cosine", "Squared L2", "L2"], default=[], help="Names of regularizers to apply")
+    parser.add_argument("--regularizer_weights", type=float, action="extend", default=[], nargs="+", help="Regularizer weights, with order corresponding to the names provided to the 'regularizers' argument")
 
     parser.add_argument("--trim_unneeded_outputs", action="store_true", help="Excludes non-maximized outputs from the model")
 
