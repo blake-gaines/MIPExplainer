@@ -46,16 +46,30 @@ def force_connected(model, A):
     for i in range(A.shape[0]-1):
         model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1, name=f"node_{i}_connected")
 
+# def add_relu_constraint(model, X, name=None):
+#     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
+#     model.update()
+#     ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts")
+#     ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0), name=f"{name}_ss") #.clip(min=0, max=big_number)
+#     model.update()
+#     zs = model.addMVar(X.shape, vtype=GRB.BINARY, name=f"{name}_zs")
+#     model.addConstr(ts - ss == X, name=f"{name}_constraint_1" if name else None)
+#     model.addConstr(ts <= ts.getAttr("ub")*zs, name=f"{name}_constraint_2" if name else None)
+#     model.addConstr(ss <= ss.getAttr("ub")*(1-zs), name=f"{name}_constraint_3" if name else None)
+#     return ts
+
 def add_relu_constraint(model, X, name=None):
     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
     model.update()
     ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts")
-    ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0), name=f"{name}_ss") #.clip(min=0, max=big_number)
+
+    X_list = [x for x_row in X.tolist() for x in x_row]
+    t_list = [t for t_row in ts.tolist() for t in t_row]
+
     model.update()
-    zs = model.addMVar(X.shape, vtype=GRB.BINARY, name=f"{name}_zs")
-    model.addConstr(ts - ss == X, name=f"{name}_constraint_1" if name else None)
-    model.addConstr(ts <= ts.getAttr("ub")*zs, name=f"{name}_constraint_2" if name else None)
-    model.addConstr(ss <= ss.getAttr("ub")*(1-zs), name=f"{name}_constraint_3" if name else None)
+
+    for i, (x, t) in enumerate(zip(X_list, t_list)):
+        model.addGenConstrMax(t, [x], constant=0, name=f"{name}_constraint_{i}")
     return ts
 
 def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin_weight=None, lin_bias=None, project=False, name=None, aggr="mean"):
