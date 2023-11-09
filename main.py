@@ -263,12 +263,12 @@ if __name__ == "__main__":
     #     m.addConstr(var <= max_output_var)
 
     # # Create a decision variable and constrain it to the maximum of the non max_class logits
-    # other_outputs_max = m.addVar(name="other_outputs_max", lb=max(v.getAttr("lb") for v in other_outputs_vars), ub=max(v.getAttr("ub") for v in other_outputs_vars))
-    # m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
+    other_outputs_max = m.addVar(name="other_outputs_max", lb=max(v.getAttr("lb") for v in other_outputs_vars), ub=max(v.getAttr("ub") for v in other_outputs_vars))
+    m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
 
     max_output_var = output_vars["Output"][0] if args.trim_unneeded_outputs else output_vars["Output"][0, max_class]  
     ## MIQCP objective function
-    m.setObjective(max_output_var-sum(other_outputs_vars)+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
+    m.setObjective(max_output_var-other_outputs_max+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
     m.update()
 
     # Save a copy of the model
@@ -331,7 +331,7 @@ if __name__ == "__main__":
                 "Objective Value": model.cbGet(GRB.Callback.MIPSOL_OBJ),
                 "Upper Bound": model.cbGet(GRB.Callback.MIPSOL_OBJBND),
                 "Variables Changed": n_changed,
-                "Changed Variables": changed_vars,
+                # "Changed Variables": changed_vars,
             }
             solution.update(similarities)
             solutions.append(solution)
