@@ -1,4 +1,4 @@
 MIPFocus  2
 NonConvex  2
 Presolve 2
-ConcurrentMIP 8
+ConcurrentMIP 1
