@@ -126,6 +126,9 @@ if __name__ == "__main__":
         elif dataset_name in ["MUTAG", "OurMotifs"]:
             # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
             init_graph_x = torch.eye(num_node_features)[torch.randint(1, (num_nodes,)),:]
+        elif dataset_name in ["Shapes_Ones", "Is_Acyclic_Ones"]:
+            init_graph_x = torch.ones((num_nodes, num_node_features))
+
         # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
         # init_graph_adj = torch.ones((num_nodes, num_nodes))
         init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
@@ -155,6 +158,9 @@ if __name__ == "__main__":
     elif dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
         X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
         m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
+    elif dataset_name in ["Shapes_Ones", "Is_Acyclic_Ones"]:
+        X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
+        m.addConstr(X == 1, name="features_are_ones")
     else:
         raise ValueError(f"Unknown Decision Variables for {dataset_name}")
     
