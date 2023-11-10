@@ -4,7 +4,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     sol_init_args = parser.add_mutually_exclusive_group(required=True)
 
-    parser.add_argument("-d", "--dataset_name", type=str, required="True", choices=["MUTAG", "Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"], help="Name of dataset")
+    parser.add_argument("-d", "--dataset_name", type=str, required="True", help="Name of dataset") # , choices=["MUTAG", "Shapes", "Shapes_Clean", "OurMotifs", "Is_Acyclic"]
     parser.add_argument("-m", "--max_class", type=int, required="True", help="Index of logit to be maximized")
     sol_init_args.add_argument("-n","--num_nodes", type=int, help="Number of nodes in the explanation graph")
     

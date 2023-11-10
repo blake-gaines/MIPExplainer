@@ -132,7 +132,7 @@ if __name__ == "__main__":
 
     if not os.path.isdir("models"): os.mkdir("models")
 
-    epochs = 200
+    epochs = 100
     num_inits = 5
     num_explanations = 3
     conv_type = "sage"
@@ -145,8 +145,8 @@ if __name__ == "__main__":
     # model_path = "models/OurMotifs_model_smaller.pth"
     # model_path = "models/Shapes_Clean_model_small.pth"
     # model_path = "models/MUTAG_model.pth"
-    model_path = "models/Shapes_Ones_model.pth"
-    # model_path = "models/Is_Acyclic_Ones_model.pth"
+    # model_path = "models/Shapes_Ones_model.pth"
+    model_path = "models/Is_Acyclic_Ones_model.pth"
 
     log_run = False
 
@@ -158,8 +158,8 @@ if __name__ == "__main__":
     # with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
     # with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
     # with open("data/Shapes_Clean/dataset.pkl", "rb") as f: dataset = pickle.load(f)
-    with open("data/Shapes_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
-    # with open("data/Is_Acyclic_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+    # with open("data/Shapes_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+    with open("data/Is_Acyclic_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
     print()
     print(f'Dataset: {str(dataset)[:20]}:')
