@@ -63,12 +63,12 @@ def canonicalize_graph(graph):
     sorted_nodes.reverse()
 
     # Create a mapping of old labels to new labels
-    label_mapping = {i: node for i, node in enumerate(sorted_nodes)}
+    label_mapping = {node: i for i, node in enumerate(sorted_nodes)}
 
     # Relabel the graph
     G = nx.relabel_nodes(G, label_mapping)
 
-    graph.x = init_graph.x[sorted_nodes, :]
+    graph.x = graph.x[sorted_nodes, :]
     graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
 
 if __name__ == "__main__":
