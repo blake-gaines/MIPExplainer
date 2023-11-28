@@ -109,6 +109,7 @@ if __name__ == "__main__":
     print("Number of Node Features", num_node_features)
 
     if args.init_with_data:
+        # Initialize with a graph from the dataset
         if args.init_index is not None:
             print(f"Initializing from dataset with graph at index {args.init_index}")
             init_graph = dataset[args.init_index]
@@ -126,6 +127,7 @@ if __name__ == "__main__":
         num_nodes = init_graph.num_nodes
 
     else:
+        # Initialize with a dummy graph
         # By default, will generate a line graph with uniform random node features
         print(f"Initializing with dummy graph")
         # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
@@ -141,8 +143,6 @@ if __name__ == "__main__":
         # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
         # init_graph_adj = torch.ones((num_nodes, num_nodes))
         init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
-
-        # canonicalize_graph(init_graph, nn=nn)
 
     # Each row of phi is the average embedding of the graphs in the corresponding class of the dataset
     phi = get_average_phi(dataset, nn, "Aggregation")
@@ -374,7 +374,6 @@ if __name__ == "__main__":
                 pickle.dump(solutions, f)
 
     ## Warm start - create an initial solution for the model
-    # TODO: Initial values for canonicalization variables (not currently a problem, the solver completes the partial solution)
     m.NumStart = 1
     init_graph.x = init_graph.x.to(torch.float64)
     init_graph.edge_index = to_undirected(init_graph.edge_index) ## TODO: Remove
@@ -396,8 +395,11 @@ if __name__ == "__main__":
         all_lb.extend(var.getAttr("lb").flatten().tolist())
         all_ub.extend(var.getAttr("ub").flatten().tolist())
 
+        # Check variables and ouputs have the same shape
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
+        # Check initializations for all variables are geq the lower bounds
         assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}', np.greater(var.getAttr("lb"), output).sum())
+        # Check initializations for all variables are leq the upper bounds
         assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.shape, var.getAttr("ub").max(), output.max(), np.less(var.getAttr("ub"), output).sum())
         
         var.Start = output
@@ -406,6 +408,7 @@ if __name__ == "__main__":
         # var.setAttr("lb", output)
         # var.setAttr("ub", output)
 
+        # Initialize similarity DVs
         if layer_name == "Aggregation":
             for sim_method in sim_methods:
                 if sim_method == "Cosine":
@@ -416,7 +419,7 @@ if __name__ == "__main__":
                     regularizers[sim_method].Start = sum((output[0] - phi[max_class])*(output[0] - phi[max_class]))
     m.update()
 
-    print(f"Lowest Lower Bound: {min(all_lb)} | Highest Upper Bound: {max(all_ub)}, | Min AV Bound: {min([b for b in np.abs(all_lb+all_ub) if b>0])}")
+    print(f"Lowest Lower Bound: {min(all_lb)} | Highest Upper Bound: {max(all_ub)}, | Min ABS Bound: {min([b for b in np.abs(all_lb+all_ub) if b>0])}")
 
     # Check variables are bounded or binary
     for var in m.getVars():
@@ -434,8 +437,10 @@ if __name__ == "__main__":
     #     m.write('tune'+str(i)+'.prm')
     # print("Done Tuning")
 
+    # Set time limit for solve
     m.setParam("TimeLimit", 3600*6)
 
+    # Run Optimization
     m.optimize(callback)
 
     # Save all solutions
