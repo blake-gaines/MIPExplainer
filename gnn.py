@@ -87,6 +87,8 @@ class GNN(torch.nn.Module):
         for name, layer in self.layers.items():
             if isinstance(layer, SAGEConv):
                 outputs.append((name, layer(outputs[-1][1], data.edge_index)))
+            elif isinstance(layer, Aggregation):
+                outputs.append((name, layer(outputs[-1][1], data.batch)))
             else:
                 outputs.append((name, layer(outputs[-1][1])))
         return outputs
