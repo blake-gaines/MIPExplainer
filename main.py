@@ -47,20 +47,29 @@ ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
 num_node_features = dataset[0].x.shape[1]
 
-def canonicalize_graph(graph):
+def canonicalize_graph(graph,nn=None,weird=None):
     # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
     # TODO: Generalize to non one-hot vector node features
 
+    # Lexicographic ordering of node embeddings
+    # all_outputs = nn.get_all_layer_outputs(graph)
+    # node_embedding = dict(all_outputs)["Conv_2_Relu"].detach().numpy()
+    # node_embedding_indices = (node_embedding @ weird)
+    # sorted_nodes = np.argsort(node_embedding_indices)
+
+    # Lexicographic ordering of node features (one-hot)
+    sorted_nodes = np.argsort(np.argmax(graph.x.detach().numpy(), axis=1))
+
     G = to_networkx(init_graph)
 
-    # Get source node for DFS, should be largest degree/first lexicographically (TODO)
-    A = to_dense_adj(graph.edge_index).detach().numpy().squeeze()
-    weighted_feature_sums = A @ (graph.x.detach().numpy() @ np.linspace(1,graph.num_node_features, num=graph.num_node_features))
-    min_node=np.argmin(A.sum(axis=0)*num_node_features*num_nodes+weighted_feature_sums)
+    # # Get source node for DFS, should be largest degree/first lexicographically (TODO)
+    # A = to_dense_adj(graph.edge_index).detach().numpy().squeeze()
+    # weighted_feature_sums = A @ (graph.x.detach().numpy() @ np.linspace(1,graph.num_node_features, num=graph.num_node_features))
+    # min_node=np.argmin(A.sum(axis=0)*num_node_features*num_nodes+weighted_feature_sums)
 
-    # Get node ordering
-    sorted_nodes = list(nx.dfs_preorder_nodes(G, source=min_node))
-    sorted_nodes.reverse()
+    # # Get node ordering
+    # sorted_nodes = list(nx.dfs_preorder_nodes(G, source=min_node))
+    # sorted_nodes.reverse()
 
     # Create a mapping of old labels to new labels
     label_mapping = {node: i for i, node in enumerate(sorted_nodes)}
@@ -133,7 +142,7 @@ if __name__ == "__main__":
         # init_graph_adj = torch.ones((num_nodes, num_nodes))
         init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
 
-        canonicalize_graph(init_graph)
+        # canonicalize_graph(init_graph, nn=nn)
 
     # Each row of phi is the average embedding of the graphs in the corresponding class of the dataset
     phi = get_average_phi(dataset, nn, "Aggregation")
@@ -224,12 +233,24 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
 
-    # # Lexicographic ordering of node embeddings
-    # embedding = output_vars["Aggregation"][0]
+    m.update()
+
+    # # Lexicographic ordering of node embeddings - didn't work
+    # node_embedding = output_vars["Conv_2_Relu"]
+    # weird = np.cumsum(node_embedding.getAttr("ub")[0])
+    # node_embedding_indices = (node_embedding @ weird) # Maybe find something better
     # for i in range(num_nodes-1):
-    #     emebdding_indices = (embedding/np.linalhg) @ np.linspace(1,graph.num_node_features, num=graph.num_node_features)
     #     for j in range(i+1, num_nodes):
-    #         m.addConstr(emebdding_indices[i] <= emebdding_indices[j])
+    #         m.addConstr(node_embedding_indices[i] <= node_embedding_indices[j], name=f"order_node_embeddings_{i}_{j}")
+    # canonicalize_graph(init_graph, nn=nn, weird=weird)
+
+    # Lexicographic ordering of node features (one-hot)
+    # Combined with connected constraints: We're adding each next-biggest featured node and connecting it to the existing structure.
+    for i in range(num_nodes-1):
+        for j in range(i+1, num_nodes):
+            for k in range(num_node_features):
+                m.addConstr(sum(X[i,:k]) >= sum(X[j,:k]))
+    canonicalize_graph(init_graph)
         
     ## Create decision variables to represent (unweighted) regularizer terms based on embedding similarity/distance
     ## These can also be used in constraints!!!
@@ -376,12 +397,12 @@ if __name__ == "__main__":
         all_ub.extend(var.getAttr("ub").flatten().tolist())
 
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
-        assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.shape, var.getAttr("lb").min(), output.min(), np.greater(var.getAttr("lb"), output).sum())
+        assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}', np.greater(var.getAttr("lb"), output).sum())
         assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.shape, var.getAttr("ub").max(), output.max(), np.less(var.getAttr("ub"), output).sum())
         
         var.Start = output
 
-        ## Fix outputs for debugging
+        # # Fix outputs for debugging
         # var.setAttr("lb", output)
         # var.setAttr("ub", output)
 
