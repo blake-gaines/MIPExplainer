@@ -131,7 +131,7 @@ def global_add_pool(model, X, name=None):
 def global_mean_pool(model, X, name=None):
     # Outputs variables constrained to the mean of node features element-wise
     model.update()
-    averages = model.addMVar((X.shape[1],), lb=X.getAttr("lb").sum(axis=0)/X.shape[0], ub=X.getAttr("ub").sum(axis=0)/X.shape[0], name=name)
+    averages = model.addMVar((X.shape[1],), lb=X.getAttr("lb").mean(axis=0), ub=X.getAttr("ub").mean(axis=0), name=name)
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages[np.newaxis, :]
 
