@@ -14,7 +14,7 @@ def get_matmul_bounds(MVar, W):
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
     lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
-    ts = model.addMVar((W.shape[0],), lb=lower_bounds, ub=upper_bounds, name=f"{name}_t" if name else None)
+    ts = model.addMVar((W.shape[0],), lb=lower_bounds + b, ub=upper_bounds+b, name=f"{name}_t" if name else None)
     model.addConstr(ts==X@W.T + b, name=f"{name}_output_constraint" if name else None)
     return ts[np.newaxis, :]
 
