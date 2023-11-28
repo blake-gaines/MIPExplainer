@@ -41,10 +41,15 @@ def force_undirected(model, A):
         for j in range(i+1, A.shape[1]):
             model.addConstr(A[i][j] == A[j][i], name=f"undirected_{i}_{j}")
 
+# def force_connected(model, A):
+#     # Enforce partial ordering on nodes to ensure connectivity
+#     for i in range(A.shape[0]-1):
+#         model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1, name=f"node_{i}_connected")
+
 def force_connected(model, A):
     # Enforce partial ordering on nodes to ensure connectivity
-    for i in range(A.shape[0]-1):
-        model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1, name=f"node_{i}_connected")
+    for i in range(1,A.shape[0]):
+        model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i)) >= 1, name=f"node_{i}_connected")
 
 # def add_relu_constraint(model, X, name=None):
 #     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
