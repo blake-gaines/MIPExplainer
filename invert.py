@@ -2,7 +2,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
-big_number = 256
+big_number = 2048
 
 def get_matmul_bounds(MVar, W):
     # Define the bounds of AW, where A is a matrix of decision variables and W is a matrix of fixed scalars
@@ -85,7 +85,9 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
         X = add_relu_constraint(model, X, name=name+"projection_relu")
         
     # Create decision variables to store the aggregated features of each node's neighborhood
-    aggregated_features = model.addMVar(X.shape, lb=-big_number, ub=big_number, name=f"{name}_aggregated_features")
+    aggregated_features = model.addMVar(X.shape, lb=1, ub=-1, name=f"{name}_aggregated_features")
+
+    model.update()
 
     if aggr=="mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
