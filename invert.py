@@ -107,10 +107,10 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
     first_lower_bounds, first_upper_bounds = get_matmul_bounds(X, lin_r_weight.T)
     second_lower_bounds, second_upper_bounds = get_matmul_bounds(aggregated_features, lin_l_weight.T)
     # If node features are categorical, we can tighten the bounds on the output.
-    if name == "Conv_0" and aggr=="mean" and model.getConstrByName("categorical_features[0]") is not None:
-        print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
-        first_lower_bounds = np.maximum(first_lower_bounds, np.repeat(lin_r_weight.min(axis=1)[np.newaxis, :], X.shape[0], axis=0))
-        first_upper_bounds = np.minimum(first_upper_bounds, np.repeat(lin_r_weight.max(axis=1)[np.newaxis, :], X.shape[0], axis=0))
+    # if name == "Conv_0" and aggr=="mean" and model.getConstrByName("categorical_features[0]") is not None:
+    #     print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
+    #     first_lower_bounds = np.maximum(first_lower_bounds, np.repeat(lin_r_weight.min(axis=1)[np.newaxis, :], X.shape[0], axis=0))
+    #     first_upper_bounds = np.minimum(first_upper_bounds, np.repeat(lin_r_weight.max(axis=1)[np.newaxis, :], X.shape[0], axis=0))
     ts_lower_bounds = (first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0))
     ts_upper_bounds = (first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0))
     ts = model.addMVar((X.shape[0], lin_r_weight.shape[0]), lb=ts_lower_bounds, ub=ts_upper_bounds, name=f"{name}_t" if name else None)
