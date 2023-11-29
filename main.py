@@ -47,28 +47,37 @@ ys = [int(d.y) for d in dataset]
 num_classes = len(set(ys))
 num_node_features = dataset[0].x.shape[1]
 
-def canonicalize_graph(graph):
+def canonicalize_graph(graph,nn=None,weird=None):
     # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
     # TODO: Generalize to non one-hot vector node features
 
+    # Lexicographic ordering of node embeddings
+    # all_outputs = nn.get_all_layer_outputs(graph)
+    # node_embedding = dict(all_outputs)["Conv_2_Relu"].detach().numpy()
+    # node_embedding_indices = (node_embedding @ weird)
+    # sorted_nodes = np.argsort(node_embedding_indices)
+
+    # Lexicographic ordering of node features (one-hot)
+    sorted_nodes = np.argsort(np.argmax(graph.x.detach().numpy(), axis=1))
+
     G = to_networkx(init_graph)
 
-    # Get source node for DFS, should be largest degree/first lexicographically (TODO)
-    A = to_dense_adj(graph.edge_index).detach().numpy().squeeze()
-    weighted_feature_sums = A @ (graph.x.detach().numpy() @ np.linspace(1,graph.num_node_features, num=graph.num_node_features))
-    min_node=np.argmin(A.sum(axis=0)*num_node_features*num_nodes+weighted_feature_sums)
+    # # Get source node for DFS, should be largest degree/first lexicographically (TODO)
+    # A = to_dense_adj(graph.edge_index).detach().numpy().squeeze()
+    # weighted_feature_sums = A @ (graph.x.detach().numpy() @ np.linspace(1,graph.num_node_features, num=graph.num_node_features))
+    # min_node=np.argmin(A.sum(axis=0)*num_node_features*num_nodes+weighted_feature_sums)
 
-    # Get node ordering
-    sorted_nodes = list(nx.dfs_preorder_nodes(G, source=min_node))
-    sorted_nodes.reverse()
+    # # Get node ordering
+    # sorted_nodes = list(nx.dfs_preorder_nodes(G, source=min_node))
+    # sorted_nodes.reverse()
 
     # Create a mapping of old labels to new labels
-    label_mapping = {i: node for i, node in enumerate(sorted_nodes)}
+    label_mapping = {node: i for i, node in enumerate(sorted_nodes)}
 
     # Relabel the graph
     G = nx.relabel_nodes(G, label_mapping)
 
-    graph.x = init_graph.x[sorted_nodes, :]
+    graph.x = graph.x[sorted_nodes, :]
     graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
 
 if __name__ == "__main__":
@@ -100,6 +109,7 @@ if __name__ == "__main__":
     print("Number of Node Features", num_node_features)
 
     if args.init_with_data:
+        # Initialize with a graph from the dataset
         if args.init_index is not None:
             print(f"Initializing from dataset with graph at index {args.init_index}")
             init_graph = dataset[args.init_index]
@@ -117,6 +127,7 @@ if __name__ == "__main__":
         num_nodes = init_graph.num_nodes
 
     else:
+        # Initialize with a dummy graph
         # By default, will generate a line graph with uniform random node features
         print(f"Initializing with dummy graph")
         # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
@@ -132,8 +143,6 @@ if __name__ == "__main__":
         # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
         # init_graph_adj = torch.ones((num_nodes, num_nodes))
         init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
-
-        canonicalize_graph(init_graph)
 
     # Each row of phi is the average embedding of the graphs in the corresponding class of the dataset
     phi = get_average_phi(dataset, nn, "Aggregation")
@@ -224,12 +233,24 @@ if __name__ == "__main__":
         else:
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
 
-    # # Lexicographic ordering of node embeddings
-    # embedding = output_vars["Aggregation"][0]
+    m.update()
+
+    # # Lexicographic ordering of node embeddings - didn't work
+    # node_embedding = output_vars["Conv_2_Relu"]
+    # weird = np.cumsum(node_embedding.getAttr("ub")[0])
+    # node_embedding_indices = (node_embedding @ weird) # Maybe find something better
     # for i in range(num_nodes-1):
-    #     emebdding_indices = (embedding/np.linalhg) @ np.linspace(1,graph.num_node_features, num=graph.num_node_features)
     #     for j in range(i+1, num_nodes):
-    #         m.addConstr(emebdding_indices[i] <= emebdding_indices[j])
+    #         m.addConstr(node_embedding_indices[i] <= node_embedding_indices[j], name=f"order_node_embeddings_{i}_{j}")
+    # canonicalize_graph(init_graph, nn=nn, weird=weird)
+
+    # Lexicographic ordering of node features (one-hot)
+    # Combined with connected constraints: We're adding each next-biggest featured node and connecting it to the existing structure.
+    for i in range(num_nodes-1):
+        for j in range(i+1, num_nodes):
+            for k in range(num_node_features):
+                m.addConstr(sum(X[i,:k]) >= sum(X[j,:k]))
+    canonicalize_graph(init_graph)
         
     ## Create decision variables to represent (unweighted) regularizer terms based on embedding similarity/distance
     ## These can also be used in constraints!!!
@@ -353,7 +374,6 @@ if __name__ == "__main__":
                 pickle.dump(solutions, f)
 
     ## Warm start - create an initial solution for the model
-    # TODO: Initial values for canonicalization variables (not currently a problem, the solver completes the partial solution)
     m.NumStart = 1
     init_graph.x = init_graph.x.to(torch.float64)
     init_graph.edge_index = to_undirected(init_graph.edge_index) ## TODO: Remove
@@ -375,16 +395,20 @@ if __name__ == "__main__":
         all_lb.extend(var.getAttr("lb").flatten().tolist())
         all_ub.extend(var.getAttr("ub").flatten().tolist())
 
+        # Check variables and ouputs have the same shape
         assert var.shape == output.shape, (layer_name, var.shape, output.shape)
-        assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, var.shape, var.getAttr("lb").min(), output.min(), np.greater(var.getAttr("lb"), output).sum())
+        # Check initializations for all variables are geq the lower bounds
+        assert np.less_equal(var.getAttr("lb"), output).all(), (layer_name, f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}', np.greater(var.getAttr("lb"), output).sum())
+        # Check initializations for all variables are leq the upper bounds
         assert np.greater_equal(var.getAttr("ub"), output).all(), (layer_name, var.shape, var.getAttr("ub").max(), output.max(), np.less(var.getAttr("ub"), output).sum())
         
         var.Start = output
 
-        ## Fix outputs for debugging
+        # # Fix outputs for debugging
         # var.setAttr("lb", output)
         # var.setAttr("ub", output)
 
+        # Initialize similarity DVs
         if layer_name == "Aggregation":
             for sim_method in sim_methods:
                 if sim_method == "Cosine":
@@ -395,7 +419,7 @@ if __name__ == "__main__":
                     regularizers[sim_method].Start = sum((output[0] - phi[max_class])*(output[0] - phi[max_class]))
     m.update()
 
-    print(f"Lowest Lower Bound: {min(all_lb)} | Highest Upper Bound: {max(all_ub)}, | Min AV Bound: {min([b for b in np.abs(all_lb+all_ub) if b>0])}")
+    print(f"Lowest Lower Bound: {min(all_lb)} | Highest Upper Bound: {max(all_ub)}, | Min ABS Bound: {min([b for b in np.abs(all_lb+all_ub) if b>0])}")
 
     # Check variables are bounded or binary
     for var in m.getVars():
@@ -413,8 +437,10 @@ if __name__ == "__main__":
     #     m.write('tune'+str(i)+'.prm')
     # print("Done Tuning")
 
+    # Set time limit for solve
     m.setParam("TimeLimit", 3600*6)
 
+    # Run Optimization
     m.optimize(callback)
 
     # Save all solutions

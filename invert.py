@@ -2,7 +2,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
-big_number = 256
+big_number = 2048
 
 def get_matmul_bounds(MVar, W):
     # Define the bounds of AW, where A is a matrix of decision variables and W is a matrix of fixed scalars
@@ -14,7 +14,7 @@ def get_matmul_bounds(MVar, W):
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
     lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
-    ts = model.addMVar((W.shape[0],), lb=lower_bounds, ub=upper_bounds, name=f"{name}_t" if name else None)
+    ts = model.addMVar((W.shape[0],), lb=lower_bounds + b, ub=upper_bounds+b, name=f"{name}_t" if name else None)
     model.addConstr(ts==X@W.T + b, name=f"{name}_output_constraint" if name else None)
     return ts[np.newaxis, :]
 
@@ -41,10 +41,15 @@ def force_undirected(model, A):
         for j in range(i+1, A.shape[1]):
             model.addConstr(A[i][j] == A[j][i], name=f"undirected_{i}_{j}")
 
+# def force_connected(model, A):
+#     # Enforce partial ordering on nodes to ensure connectivity
+#     for i in range(A.shape[0]-1):
+#         model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1, name=f"node_{i}_connected")
+
 def force_connected(model, A):
     # Enforce partial ordering on nodes to ensure connectivity
-    for i in range(A.shape[0]-1):
-        model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1, name=f"node_{i}_connected")
+    for i in range(1,A.shape[0]):
+        model.addConstr(gp.quicksum(A[i][j] + A[j][i] for j in range(i)) >= 1, name=f"node_{i}_connected")
 
 # def add_relu_constraint(model, X, name=None):
 #     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
@@ -80,7 +85,9 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
         X = add_relu_constraint(model, X, name=name+"projection_relu")
         
     # Create decision variables to store the aggregated features of each node's neighborhood
-    aggregated_features = model.addMVar(X.shape, lb=-big_number, ub=big_number, name=f"{name}_aggregated_features")
+    aggregated_features = model.addMVar(X.shape, lb=1, ub=-1, name=f"{name}_aggregated_features")
+
+    model.update()
 
     if aggr=="mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
@@ -100,10 +107,10 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
     first_lower_bounds, first_upper_bounds = get_matmul_bounds(X, lin_r_weight.T)
     second_lower_bounds, second_upper_bounds = get_matmul_bounds(aggregated_features, lin_l_weight.T)
     # If node features are categorical, we can tighten the bounds on the output.
-    if name == "Conv_0" and aggr=="mean" and model.getConstrByName("categorical_features[0]") is not None:
-        print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
-        first_lower_bounds = np.maximum(first_lower_bounds, np.repeat(lin_r_weight.min(axis=1)[np.newaxis, :], X.shape[0], axis=0))
-        first_upper_bounds = np.minimum(first_upper_bounds, np.repeat(lin_r_weight.max(axis=1)[np.newaxis, :], X.shape[0], axis=0))
+    # if name == "Conv_0" and aggr=="mean" and model.getConstrByName("categorical_features[0]") is not None:
+    #     print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
+    #     first_lower_bounds = np.maximum(first_lower_bounds, np.repeat(lin_r_weight.min(axis=1)[np.newaxis, :], X.shape[0], axis=0))
+    #     first_upper_bounds = np.minimum(first_upper_bounds, np.repeat(lin_r_weight.max(axis=1)[np.newaxis, :], X.shape[0], axis=0))
     ts_lower_bounds = (first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0))
     ts_upper_bounds = (first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0))
     ts = model.addMVar((X.shape[0], lin_r_weight.shape[0]), lb=ts_lower_bounds, ub=ts_upper_bounds, name=f"{name}_t" if name else None)
@@ -124,7 +131,7 @@ def global_add_pool(model, X, name=None):
 def global_mean_pool(model, X, name=None):
     # Outputs variables constrained to the mean of node features element-wise
     model.update()
-    averages = model.addMVar((X.shape[1],), lb=X.getAttr("lb").sum(axis=0)/X.shape[0], ub=X.getAttr("ub").sum(axis=0)/X.shape[0], name=name)
+    averages = model.addMVar((X.shape[1],), lb=X.getAttr("lb").mean(axis=0), ub=X.getAttr("ub").mean(axis=0), name=name)
     model.addConstr(averages == gp.quicksum(X)/X.shape[0], name=f"{name}_constraint" if name else None)
     return averages[np.newaxis, :]
 

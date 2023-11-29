@@ -43,10 +43,6 @@ def draw_graph(A=None, X=None, edge_index=None, data=None, label_dict=None, colo
 
     return fig, ax
 
-def save_graph(A, X, index):
-    np.save(f"solutions/X_{index}.npy", X)
-    np.save(f"solutions/A_{index}.npy", A)
-
 def get_average_phi(dataset, nn, layer_name):
     embedding_sum = None
     num_classes = len(set([data.y for data in dataset]))
