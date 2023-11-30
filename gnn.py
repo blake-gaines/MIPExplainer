@@ -92,6 +92,20 @@ class GNN(torch.nn.Module):
             else:
                 outputs.append((name, layer(outputs[-1][1])))
         return outputs
+
+    def get_layer_output(self, data, layer_name):
+        data = self.fix_data(data)
+        x = data.x
+        if layer_name not in self.layers: raise ValueError(f"Network has no layer with name {layer_name}")
+        for name, layer in self.layers.items():
+            if isinstance(layer, SAGEConv):
+                x = layer(x, data.edge_index)
+            elif isinstance(layer, Aggregation):
+                x = layer(x, data.batch)
+            else:
+                x = layer(x)
+            if name == layer_name:
+                return x
     
 def train(model, train_loader, optimizer, criterion):
     model.train()

@@ -1,8 +1,7 @@
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
-
-big_number = 2048
+from numpy.linalg import norm
 
 def get_matmul_bounds(MVar, W):
     # Define the bounds of AW, where A is a matrix of decision variables and W is a matrix of fixed scalars
@@ -55,7 +54,7 @@ def force_connected(model, A):
 #     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
 #     model.update()
 #     ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts")
-#     ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0), name=f"{name}_ss") #.clip(min=0, max=big_number)
+#     ss = model.addMVar(X.shape, lb=0, ub=(-X.getAttr("lb")).clip(min=0), name=f"{name}_ss")
 #     model.update()
 #     zs = model.addMVar(X.shape, vtype=GRB.BINARY, name=f"{name}_zs")
 #     model.addConstr(ts - ss == X, name=f"{name}_constraint_1" if name else None)
@@ -92,13 +91,13 @@ def add_sage_constraint(model, A, X, lin_r_weight, lin_l_weight, lin_l_bias, lin
     if aggr=="mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
-        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))#.clip(min=-big_number, max=big_number))
-        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))#.clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))
+        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0))
         model.addConstr(aggregated_features*gp.quicksum(A)[:, np.newaxis] == A@X, name=f"{name}_averages_constraint" if name else None) # may need to transpose
     elif aggr=="sum":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j
-        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
-        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0) )#.clip(min=-big_number, max=big_number))
+        aggregated_features.setAttr("lb", np.repeat(X.getAttr("lb").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0) )
+        aggregated_features.setAttr("ub", np.repeat(X.getAttr("ub").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0) )
         model.addConstr(aggregated_features == A@X, name=f"{name}_sum_constraint" if name else None)
 
     model.update()
@@ -156,3 +155,25 @@ def torch_sage_constraint(model, A, X, layer, name=None):
         lin_weight = layer.get_parameter(f"lin.weight").detach().numpy()
         lin_bias = layer.get_parameter(f"lin.bias").detach().numpy()
     return add_sage_constraint(model, A, X, lin_r_weight=lin_r_weight, lin_l_weight=lin_l_weight, lin_l_bias=lin_l_bias, lin_weight=lin_weight, lin_bias=lin_bias, project=layer.project, aggr=layer.aggr, name=name)
+
+def get_cosine_similarity(model, var, vec, name="cosine_similarity"):
+    # Cosine Similarity between variable var and scalar vec
+    cosine_similarity = model.addVar(lb=0, ub=1, name=name) # Add variables for cosine similarity
+    var_magnitude = model.addVar(lb=0, ub=sum(var.getAttr("ub")**2)**0.5, name=f"{name}_magnitude") # Variables for embedding magnitude, intermediate value in calculation
+    vec_magnitude = np.linalg.norm(vec)
+    # m.addConstr(var_magnitude*var_magnitude == gp.quicksum(var*var), name=f"{name}_magnitude_constr")
+    model.addGenConstrNorm(var_magnitude, var, which=2, name=f"{name}_magnitude_constr")
+    model.addConstr(gp.quicksum(var * vec) == var_magnitude*vec_magnitude*cosine_similarity, name=f"{name}_constr") # u^Tv=|u||v|cos_sim(u,v)
+    return cosine_similarity, lambda newvec: np.dot(newvec, vec)/(norm(newvec)*norm(vec))
+
+def get_l2_distance(model, var, vec, name="l2_distance"):
+    ub = np.linalg.norm(np.maximum(var.getAttr("ub").clip(max=0).abs(), np.maximum(var.getAttr("ub").clip(min=0).abs())))
+    l2_distance = model.addVar(lb=0, ub=ub, name=name) # Add variables for L2 Distance
+    model.addConstr(l2_distance*l2_distance == gp.quicksum((vec-var)*(vec-var)), name=f"{name}_constr") # l2_dist(u,v)^2 = (u-v)^T(u-v)
+    return l2_distance, lambda newvec: norm(newvec-vec)
+
+def get_squared_l2_distance(model, var, vec, name="squared_l2_distance"):
+    ub = np.linalg.norm(np.maximum(var.getAttr("ub").clip(max=0).abs(), np.maximum(var.getAttr("ub").clip(min=0).abs())))
+    squared_l2_distance = model.addVar(lb=0, ub=ub, name=name) # Add variables for L2 Distance
+    model.addConstr(squared_l2_distance >= gp.quicksum((vec-var)*(vec-var)), name=f"{name}_constr") # l2_dist(u,v)^2 = (u-v)^T(u-v)
+    return squared_l2_distance, lambda newvec: norm(newvec-vec)**2
