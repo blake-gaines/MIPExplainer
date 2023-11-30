@@ -79,6 +79,15 @@ def force_connected(model, A):
         )
 
 
+def order_onehot_features(model, A, X):
+    # Lexicographic ordering of one-hot node features
+    # Combined with connected constraints: We're adding each next-biggest featured node and connecting it to the existing structure.
+    for i in range(X.shape[0] - 1):
+        for j in range(i + 1, X.shape[0]):
+            for k in range(X.shape[1]):
+                model.addConstr(sum(X[i, :k]) >= sum(X[j, :k]))
+
+
 # def add_relu_constraint(model, X, name=None):
 #     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
 #     model.update()

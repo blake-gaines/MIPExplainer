@@ -299,12 +299,7 @@ if __name__ == "__main__":
     #         m.addConstr(emebdding_indices[i] <= emebdding_indices[j])
     # canonicalize_graph(init_graph, nn=nn, weird=weird)
 
-    # Lexicographic ordering of node features (one-hot)
-    # Combined with connected constraints: We're adding each next-biggest featured node and connecting it to the existing structure.
-    for i in range(num_nodes - 1):
-        for j in range(i + 1, num_nodes):
-            for k in range(num_node_features):
-                m.addConstr(sum(X[i, :k]) >= sum(X[j, :k]))
+    invert_utils.order_onehot_features(inverter.m, A, X)
     canonicalize_graph(init_graph)
 
     ## Create decision variables to represent (unweighted) regularizer terms based on embedding similarity/distance
