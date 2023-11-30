@@ -12,7 +12,7 @@ import pickle
 import matplotlib.pyplot as plt
 from torch_geometric.utils import to_networkx
 from arg_parser import parse_args
-from datasets.MUTAG import MUTAG_dataset
+from datasets import get_dataset
 from inverter import Inverter, ObjectiveTerm
 import invert_utils
 import numpy as np
@@ -37,9 +37,7 @@ torch.manual_seed(12345)
 if not os.path.isdir("solutions"):
     os.mkdir("solutions")
 
-if dataset_name == "MUTAG":
-    dataset = MUTAG_dataset()
-
+dataset = get_dataset(dataset_name)
 num_node_features = dataset.num_node_features
 
 

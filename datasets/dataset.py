@@ -1,10 +1,9 @@
 # Modified from https://github.com/yolandalalala/GNNInterpreter/blob/main/gnninterpreter/datasets/base_graph_dataset.py
 
 import torch
-from torch_geometric.utils import to_dense_adj, dense_to_sparse, to_undirected, to_networkx
-from torch_geometric.data import Data, InMemoryDataset, DataLoader
+from torch_geometric.utils import to_networkx
+from torch_geometric.data import DataLoader
 import networkx as nx
-import os
 import pickle
 from abc import ABC, abstractmethod
 import numpy as np
@@ -12,14 +11,12 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import random
 
+
 class Dataset(torch.utils.data.Dataset, ABC):
     name = "ABC"
     root = "data"
 
-    def __init__(self, *,
-                 dtype=torch.float32,
-                 seed=None):
-
+    def __init__(self, *, dtype=torch.float32, seed=None):
         self.dtype = dtype
         self._seed_all(seed)
         self.data = self.get_data()
@@ -30,9 +27,10 @@ class Dataset(torch.utils.data.Dataset, ABC):
     @abstractmethod
     def get_data(self, data_dir):
         raise NotImplementedError
-    
+
     def read_pickle(self, data_dir):
-        with open(data_dir, "rb") as f: self.data = pickle.load(f)
+        with open(data_dir, "rb") as f:
+            self.data = pickle.load(f)
 
     def _seed_all(self, seed):
         self.seed = seed
@@ -48,7 +46,7 @@ class Dataset(torch.utils.data.Dataset, ABC):
         data = self[idx]
         print(f"data: {data}")
         print(f"class: {self.GRAPH_CLS[data.G.graph['label']]}")
-        self.draw(data.G, ax=ax, **kwargs)    
+        self.draw(data.G, ax=ax, **kwargs)
 
     @torch.no_grad()
     def evaluate_model(self, model, batch_size=32):
@@ -61,7 +59,7 @@ class Dataset(torch.utils.data.Dataset, ABC):
         for data in self:
             # data.x = data.x.double()
             embeddings = nn.get_layer_output(data, layer_name)
-            if embedding_sum is None: 
+            if embedding_sum is None:
                 embedding_sum = torch.zeros(num_classes, embeddings.shape[-1])
             embedding_sum[data.y] += torch.sum(embeddings, dim=0)
             n_instances[data.y] += 1
@@ -69,9 +67,9 @@ class Dataset(torch.utils.data.Dataset, ABC):
 
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, key):
-        if type(key) == int:
+        if isinstance(key, int):
             return self.data[key]
         elif type(key) == tuple and len(key) == 2:
             pass
@@ -95,14 +93,31 @@ class GraphDataset(Dataset):
     def pyg_to_nx(self, data):
         raise NotImplementedError
 
-    def draw_graph(self, A=None, X=None, edge_index=None, data=None, label_dict=None, color_dict=None, directed=False, with_labels=False, **kwargs):
-        if isinstance(A, torch.Tensor): A = A.detach().numpy()
-        if isinstance(X, torch.Tensor): X = X.detach().numpy()
+    def draw_graph(
+        self,
+        A=None,
+        X=None,
+        edge_index=None,
+        data=None,
+        label_dict=None,
+        color_dict=None,
+        directed=False,
+        with_labels=False,
+        **kwargs,
+    ):
+        if isinstance(A, torch.Tensor):
+            A = A.detach().numpy()
+        if isinstance(X, torch.Tensor):
+            X = X.detach().numpy()
 
         if A is not None:
-            G = nx.from_numpy_array(A, create_using=nx.DiGraph if directed else nx.Graph)
+            G = nx.from_numpy_array(
+                A, create_using=nx.DiGraph if directed else nx.Graph
+            )
         elif edge_index is not None:
-            G = nx.from_edgelist(edge_index, create_using=nx.DiGraph if directed else nx.Graph)
+            G = nx.from_edgelist(
+                edge_index, create_using=nx.DiGraph if directed else nx.Graph
+            )
         elif data is not None:
             G = to_networkx(data, to_undirected=(not directed))
             if hasattr(data, "x"):
@@ -118,12 +133,28 @@ class GraphDataset(Dataset):
                 x_indices = X.squeeze()
             else:
                 x_indices = np.argmax(X, axis=1)
-            labels = dict(zip(range(X.shape[0]), map(label_dict.get, x_indices))) if label_dict else dict(zip(range(X.shape[0]), x_indices))
+            labels = (
+                dict(zip(range(X.shape[0]), map(label_dict.get, x_indices)))
+                if label_dict
+                else dict(zip(range(X.shape[0]), x_indices))
+            )
 
             if color_dict is None:
-                color_dict = {i:c for i,c in enumerate(random.choices(list(mcolors.CSS4_COLORS.values()), k=X.shape[1]))}
+                color_dict = {
+                    i: c
+                    for i, c in enumerate(
+                        random.choices(list(mcolors.CSS4_COLORS.values()), k=X.shape[1])
+                    )
+                }
             node_color = list(map(lambda i: color_dict.get(i, "skyblue"), x_indices))
 
         fig, ax = plt.subplots()
-        nx.draw_networkx(G, pos=pos, with_labels=with_labels, labels=labels, node_color=node_color, **kwargs)
+        nx.draw_networkx(
+            G,
+            pos=pos,
+            with_labels=with_labels,
+            labels=labels,
+            node_color=node_color,
+            **kwargs,
+        )
         return fig, ax
