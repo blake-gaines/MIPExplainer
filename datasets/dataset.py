@@ -102,7 +102,7 @@ class GraphDataset(Dataset):
         label_dict=None,
         color_dict=None,
         directed=False,
-        with_labels=False,
+        with_labels=True,
         **kwargs,
     ):
         if isinstance(A, torch.Tensor):
