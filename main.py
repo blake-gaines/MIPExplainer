@@ -1,5 +1,4 @@
 import torch
-from gnn import GNN
 import gurobipy as gp
 from gurobipy import GRB
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
@@ -15,7 +14,10 @@ from torch_geometric.utils import to_networkx
 from arg_parser import parse_args
 from datasets.MUTAG import MUTAG_dataset
 from inverter import Inverter, ObjectiveTerm
-from invert_utils import *
+import invert_utils
+import numpy as np
+import random
+
 args = parse_args()
 
 dataset_name = args.dataset_name
@@ -32,14 +34,16 @@ if not model_path:
 torch.manual_seed(12345)
 # TODO: Seed for Gurobi
 
-if not os.path.isdir("solutions"): os.mkdir("solutions")
+if not os.path.isdir("solutions"):
+    os.mkdir("solutions")
 
-if dataset_name == "MUTAG": 
+if dataset_name == "MUTAG":
     dataset = MUTAG_dataset()
 
 num_node_features = dataset.num_node_features
 
-def canonicalize_graph(graph,nn=None,weird=None):
+
+def canonicalize_graph(graph, nn=None, weird=None):
     # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
     # TODO: Generalize to non one-hot vector node features
 
@@ -72,23 +76,25 @@ def canonicalize_graph(graph,nn=None,weird=None):
     graph.x = graph.x[sorted_nodes, :]
     graph.edge_index = torch.Tensor(list(G.edges)).to(torch.int64).T
 
+
 if __name__ == "__main__":
     # Load the model
     nn = torch.load(model_path, fix_imports=True)
     nn.eval()
     nn.to(torch.float64)
-    
+
     # Track hyperparameters
     if args.log:
         import wandb
+
         wandb.login()
         config = {
             "architecture": str(nn),
-            "model_path": model_path, 
-            }
+            "model_path": model_path,
+        }
         config.update(vars(args))
         wandb.init(
-            project="GNN-Inverter", 
+            project="GNN-Inverter",
             config=config,
         )
         wandb.save(args.param_file, policy="now")
@@ -106,32 +112,57 @@ if __name__ == "__main__":
             init_graph = dataset[args.init_index]
         elif num_nodes is not None:
             print(f"Initializing from dataset graph with {num_nodes} nodes")
-            init_graph = random.choice([d for d in dataset if int(d.y) == max_class and d.num_nodes == num_nodes])
+            init_graph = random.choice(
+                [
+                    d
+                    for d in dataset
+                    if int(d.y) == max_class and d.num_nodes == num_nodes
+                ]
+            )
         A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
-        print("Connected before reordering:", all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]))
+        print(
+            "Connected before reordering:",
+            all(
+                [
+                    sum(A[i][j] + A[j][i] for j in range(i + 1, A.shape[0])) >= 1
+                    for i in range(A.shape[0] - 1)
+                ]
+            ),
+        )
 
         A = to_dense_adj(init_graph.edge_index).detach().numpy().squeeze()
-        assert all([sum(A[i][j] + A[j][i] for j in range(i+1,A.shape[0])) >= 1 for i in range(A.shape[0]-1)]), "Initialization graph was not connected"
+        assert all(
+            [
+                sum(A[i][j] + A[j][i] for j in range(i + 1, A.shape[0])) >= 1
+                for i in range(A.shape[0] - 1)
+            ]
+        ), "Initialization graph was not connected"
 
         num_nodes = init_graph.num_nodes
 
     else:
         # Initialize with a dummy graph
         # By default, will generate a line graph with uniform random node features
-        print(f"Initializing with dummy graph")
+        print("Initializing with dummy graph")
         # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
-        init_graph_adj = torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1)+torch.diag_embed(torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1)
+        init_graph_adj = torch.diag_embed(
+            torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1
+        ) + torch.diag_embed(
+            torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1
+        )
         if dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
             init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
         elif dataset_name in ["MUTAG", "OurMotifs"]:
             # init_graph_x = torch.eye(num_node_features)[torch.randint(num_node_features, (num_nodes,)),:]
-            init_graph_x = torch.eye(num_node_features)[torch.randint(1, (num_nodes,)),:]
+            init_graph_x = torch.eye(num_node_features)[
+                torch.randint(1, (num_nodes,)), :
+            ]
         elif dataset_name in ["Shapes_Ones", "Is_Acyclic_Ones"]:
             init_graph_x = torch.ones((num_nodes, num_node_features))
 
         # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
         # init_graph_adj = torch.ones((num_nodes, num_nodes))
-        init_graph = Data(x=init_graph_x,edge_index=dense_to_sparse(init_graph_adj)[0])
+        init_graph = Data(x=init_graph_x, edge_index=dense_to_sparse(init_graph_adj)[0])
 
     # Each row of phi is the average embedding of the graphs in the corresponding class of the dataset
     phi = dataset.get_average_phi(nn, "Aggregation")
@@ -139,32 +170,41 @@ if __name__ == "__main__":
     print(nn)
     num_model_params = sum(param.numel() for param in nn.parameters())
     print("Model Parameters:", num_model_params)
-    if args.log: 
+    if args.log:
         wandb.run.summary["# Model Parameter"] = num_model_params
 
     env = gp.Env(logfilename="")
+
     def convert_inputs(X, A):
         X = torch.Tensor(X)
         A = torch.Tensor(A)
         return Data(x=X, edge_index=dense_to_sparse(A)[0])
+
     inverter = Inverter(args, nn, dataset, env, convert_inputs)
     m = inverter.model
 
     # Add and constrain decision variables for adjacency matrix
     A = m.addMVar((num_nodes, num_nodes), vtype=GRB.BINARY, name="A")
-    force_connected(m, A)
-    force_undirected(m, A)
-    remove_self_loops(m, A)
+    invert_utils.force_connected(m, A)
+    invert_utils.force_undirected(m, A)
+    invert_utils.remove_self_loops(m, A)
     # m.addConstr(gp.quicksum(A) >= 1, name="non_isolatied") # Nodes need an edge. Need this for SAGEConv inverse to work. UNCOMMENT IF NO OTHER CONSTRAINTS DO THIS
-
 
     # Add and constrain decision variables for node feature matrix
     if dataset_name in ["MUTAG", "OurMotifs"]:
         X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
         m.addConstr(gp.quicksum(X.T) == 1, name="categorical_features")
     elif dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
-        X = m.addMVar((num_nodes, num_node_features), lb=0, ub=init_graph.num_nodes, name="X", vtype=GRB.INTEGER)
-        m.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
+        X = m.addMVar(
+            (num_nodes, num_node_features),
+            lb=0,
+            ub=init_graph.num_nodes,
+            name="X",
+            vtype=GRB.INTEGER,
+        )
+        m.addConstr(
+            X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees"
+        )
     elif dataset_name in ["Shapes_Ones", "Is_Acyclic_Ones"]:
         X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
         m.addConstr(X == 1, name="features_are_ones")
@@ -172,7 +212,7 @@ if __name__ == "__main__":
         raise ValueError(f"Unknown Decision Variables for {dataset_name}")
 
     inverter.set_input_vars({"X": X, "A": A})
-    
+
     # # Enforce canonical (maybe) representation
     # # Only works for one-hot node features and assumes an undirected graph
     # m.update()
@@ -203,7 +243,7 @@ if __name__ == "__main__":
     #             # Constrain the obeys_orderings variables to the correct values
     #             # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
     #             m.addGenConstrIndicator(obeys_orderings[i,j], 1, sum(sum(X[i][:k+1])-sum(X[j][k:]) for k in range(num_node_features)), GRB.GREATER_EQUAL, 0, name=f"obeys_ordering_constraint_{i}_{j}")
-                
+
     #             # If the neighborhoods match, the ordering must be obeyed
     #             m.addConstr(sum(neighborhoods_match.select(i, j, '*'))-obeys_orderings[i,j] <= num_node_features-1, name=f"nb_ordering_{i}_{j}")
 
@@ -219,15 +259,31 @@ if __name__ == "__main__":
     previous_layer_output = X
     for name, layer in nn.layers.items():
         if isinstance(layer, Linear):
-            inverter.output_vars[name] = torch_fc_constraint(m, previous_layer_output, layer, name=name, max_output=max_class if args.trim_unneeded_outputs and name == "Output" else None)
+            inverter.output_vars[name] = invert_utils.torch_fc_constraint(
+                m,
+                previous_layer_output,
+                layer,
+                name=name,
+                max_output=max_class
+                if args.trim_unneeded_outputs and name == "Output"
+                else None,
+            )
         elif isinstance(layer, SAGEConv):
-            inverter.output_vars[name] = torch_sage_constraint(m, A, previous_layer_output, layer, name=name)
+            inverter.output_vars[name] = invert_utils.torch_sage_constraint(
+                m, A, previous_layer_output, layer, name=name
+            )
         elif isinstance(layer, MeanAggregation):
-            inverter.output_vars[name] = global_mean_pool(m, previous_layer_output, name=name)
+            inverter.output_vars[name] = invert_utils.global_mean_pool(
+                m, previous_layer_output, name=name
+            )
         elif isinstance(layer, SumAggregation):
-            inverter.output_vars[name] = global_add_pool(m, previous_layer_output, name=name)
+            inverter.output_vars[name] = invert_utils.global_add_pool(
+                m, previous_layer_output, name=name
+            )
         elif isinstance(layer, ReLU):
-            inverter.output_vars[name] = add_relu_constraint(m, previous_layer_output, name=name)
+            inverter.output_vars[name] = invert_utils.add_relu_constraint(
+                m, previous_layer_output, name=name
+            )
         else:
             raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
         previous_layer_output = list(inverter.output_vars.values())[-1]
@@ -246,70 +302,103 @@ if __name__ == "__main__":
 
     # Lexicographic ordering of node features (one-hot)
     # Combined with connected constraints: We're adding each next-biggest featured node and connecting it to the existing structure.
-    for i in range(num_nodes-1):
-        for j in range(i+1, num_nodes):
+    for i in range(num_nodes - 1):
+        for j in range(i + 1, num_nodes):
             for k in range(num_node_features):
-                m.addConstr(sum(X[i,:k]) >= sum(X[j,:k]))
+                m.addConstr(sum(X[i, :k]) >= sum(X[j, :k]))
     canonicalize_graph(init_graph)
-        
+
     ## Create decision variables to represent (unweighted) regularizer terms based on embedding similarity/distance
     ## These can also be used in constraints!!!
     embedding = inverter.output_vars["Aggregation"][0]
     regularizers = {}
     if "Cosine" in sim_methods:
-        var, calc = get_cosine_similarity(inverter.model, embedding, phi[max_class])
-        inverter.add_objective_term(ObjectiveTerm(
-            name="Cosine Similarity", 
-            var = var,
-            calc = calc, 
-            weight=sim_weights["Cosine"]),
-            required_vars = embedding,
+        var, calc = invert_utils.get_cosine_similarity(
+            inverter.model, embedding, phi[max_class]
+        )
+        inverter.add_objective_term(
+            ObjectiveTerm(
+                name="Cosine Similarity",
+                var=var,
+                calc=calc,
+                weight=sim_weights["Cosine"],
+            ),
+            required_vars=embedding,
         )
     if "L2" in sim_methods:
-        var, calc = get_l2_distance(inverter.model, embedding, phi[max_class])
-        inverter.add_objective_term(ObjectiveTerm(
-            name="L2 Distance", 
-            var = var,
-            calc = calc, 
-            weight=sim_weights["L2"]),
-            required_vars = embedding,
+        var, calc = invert_utils.get_l2_distance(
+            inverter.model, embedding, phi[max_class]
+        )
+        inverter.add_objective_term(
+            ObjectiveTerm(
+                name="L2 Distance", var=var, calc=calc, weight=sim_weights["L2"]
+            ),
+            required_vars=embedding,
         )
     if "Squared L2" in sim_methods:
-        var, calc = get_l2_distance(inverter.model, embedding, phi[max_class])
-        inverter.add_objective_term(ObjectiveTerm(
-            name="Squared L2 Distance", 
-            var = var,
-            calc = calc, 
-            weight=sim_weights["Squared L2"]),
-            required_vars = embedding,
-        )    
+        var, calc = invert_utils.get_l2_distance(
+            inverter.model, embedding, phi[max_class]
+        )
+        inverter.add_objective_term(
+            ObjectiveTerm(
+                name="Squared L2 Distance",
+                var=var,
+                calc=calc,
+                weight=sim_weights["Squared L2"],
+            ),
+            required_vars=embedding,
+        )
     m.update()
 
     # List of decision variables representing the logits that are not the max_class logit
-    other_outputs_vars = [inverter.output_vars["Output"][0, j] for j in range(dataset.num_classes) if j!=max_class]
+    other_outputs_vars = [
+        inverter.output_vars["Output"][0, j]
+        for j in range(dataset.num_classes)
+        if j != max_class
+    ]
 
     # # Create a decision variable and constrain it to the maximum of the non max_class logits
-    other_outputs_max = m.addVar(name="other_outputs_max", lb=max(v.getAttr("lb") for v in other_outputs_vars), ub=max(v.getAttr("ub") for v in other_outputs_vars))
-    m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
+    other_outputs_max = m.addVar(
+        name="other_outputs_max",
+        lb=max(v.getAttr("lb") for v in other_outputs_vars),
+        ub=max(v.getAttr("ub") for v in other_outputs_vars),
+    )
+    m.addGenConstrMax(
+        other_outputs_max, other_outputs_vars, name="max_of_other_outputs"
+    )
 
-    max_output_var = inverter.output_vars["Output"][0] if args.trim_unneeded_outputs else inverter.output_vars["Output"][0, max_class]  
+    max_output_var = (
+        inverter.output_vars["Output"][0]
+        if args.trim_unneeded_outputs
+        else inverter.output_vars["Output"][0, max_class]
+    )
     ## MIQCP objective function
     inverter.add_objective_term(ObjectiveTerm("Target Class Output", max_output_var))
-    inverter.add_objective_term(ObjectiveTerm("Max Non-Target Class Output", other_outputs_max, weight=-1))
+    inverter.add_objective_term(
+        ObjectiveTerm("Max Non-Target Class Output", other_outputs_max, weight=-1)
+    )
 
-    m.setObjective(max_output_var-other_outputs_max+sum(sim_weights[sim_method]*regularizers[sim_method] for sim_method in sim_methods), GRB.MAXIMIZE)
+    m.setObjective(
+        max_output_var
+        - other_outputs_max
+        + sum(
+            sim_weights[sim_method] * regularizers[sim_method]
+            for sim_method in sim_methods
+        ),
+        GRB.MAXIMIZE,
+    )
     m.update()
 
     # Save a copy of the model
     model_files = inverter.save_model()
     if args.log:
-        for fn in model_files: wandb.save(fn, policy="now")
+        for fn in model_files:
+            wandb.save(fn, policy="now")
 
     # Define the callback function for the solver to save intermediate solutions, other metrics
     def callback(model, where):
         inverter.get_default_callback()(model, where)
         if where == GRB.Callback.MIPSOL:
-            
             # # Manually calculate and save regularizer values
             # # This way, decision variables for regularizers can just be bounded above/below by the correct value if that helps
             # embedding_var_value = model.cbGetSolution(embedding)
@@ -331,7 +420,13 @@ if __name__ == "__main__":
                 fig, _ = dataset.draw_graph(A=solution["A"], X=solution["X"])
                 # plt.savefig("test.png")
                 wandb.log(solution, commit=False)
-                wandb.log({f"Output Logit {i}": solution["Output"][0, i] for i in range(solution["Output"].shape[1])}, commit=False)
+                wandb.log(
+                    {
+                        f"Output Logit {i}": solution["Output"][0, i]
+                        for i in range(solution["Output"].shape[1])
+                    },
+                    commit=False,
+                )
                 wandb.log({"fig": wandb.Image(fig)})
                 plt.close()
 
@@ -339,15 +434,18 @@ if __name__ == "__main__":
             #     pickle.dump(inverter.solutions, f)
 
     ## Warm start - create an initial solution for the model
-    bound_summary = inverter.warm_start({"X": init_graph.x, "A": to_dense_adj(init_graph.edge_index).squeeze()})
+    bound_summary = inverter.warm_start(
+        {"X": init_graph.x, "A": to_dense_adj(init_graph.edge_index).squeeze()}
+    )
     print(bound_summary)
-    if args.log: wandb.run.summary.update(bound_summary)
+    if args.log:
+        wandb.run.summary.update(bound_summary)
 
     # Get solver parameters
     m.read(args.param_file)
 
     # Run Optimization
-    inverter.solve(callback, TimeLimit=3600*6)
+    inverter.solve(callback, TimeLimit=3600 * 6)
 
     # Save all solutions
     with open(output_file, "wb") as f:
@@ -355,5 +453,5 @@ if __name__ == "__main__":
 
     print("Model Status:", m.Status)
 
-    if m.Status in [3, 4]: # If the model is infeasible, see why
+    if m.Status in [3, 4]:  # If the model is infeasible, see why
         inverter.computeIIS()
