@@ -1,6 +1,5 @@
 import gurobipy as gp
 from gurobipy import GRB
-from invert_utils import *
 import pickle
 from collections import OrderedDict
 import numpy as np
@@ -55,7 +54,8 @@ class Inverter:
         return file_names if len(file_names) > 1 else file_names[0]
 
     def solve(self, callback=None, **kwargs):
-        if callback is None: callback = self.get_default_callback()
+        if callback is None:
+            callback = self.get_default_callback()
         # Check variables are bounded or binary
         for var in self.m.getVars():
             assert var.vtype == GRB.BINARY or (
@@ -87,7 +87,9 @@ class Inverter:
                     name: model.cbGetSolution(var)
                     for name, var in self.input_vars.items()
                 }
-                nn_output = self.nn(self.convert_inputs(**solution_inputs)).detach().numpy()
+                nn_output = (
+                    self.nn(self.convert_inputs(**solution_inputs)).detach().numpy()
+                )
                 output_var_value = model.cbGetSolution(self.output_vars["Output"])
 
                 assert np.allclose(nn_output, output_var_value), "uh oh :("
@@ -99,7 +101,7 @@ class Inverter:
 
                 for name, value in objective_term_values.items():
                     term = self.objective_terms[name]
-                    if not hasattr(term, "calc"): 
+                    if not hasattr(term, "calc"):
                         continue
                     real_value = term.calc(
                         *[
@@ -109,11 +111,15 @@ class Inverter:
                     )
                     ## TODO: Something with this
 
-                solution = solution_inputs | objective_term_values | {
-                    "Output": nn_output,
-                    "Objective Value": self.m.cbGet(GRB.Callback.MIPSOL_OBJ),
-                    "Upper Bound": self.m.cbGet(GRB.Callback.MIPSOL_OBJBND),
-                }
+                solution = (
+                    solution_inputs
+                    | objective_term_values
+                    | {
+                        "Output": nn_output,
+                        "Objective Value": self.m.cbGet(GRB.Callback.MIPSOL_OBJ),
+                        "Upper Bound": self.m.cbGet(GRB.Callback.MIPSOL_OBJBND),
+                    }
+                )
                 self.solutions.append(solution)
 
         return solver_callback
