@@ -1,6 +1,25 @@
 import gurobipy as gp
 import numpy as np
 from numpy.linalg import norm
+from torch.nn import Linear, ReLU
+from torch_geometric.nn.aggr import SumAggregation, MeanAggregation
+from torch_geometric.nn import SAGEConv
+
+
+def invert_torch_layer(model, layer, **kwargs):
+    if isinstance(layer, Linear):
+        output = torch_fc_constraint(model, layer=layer, **kwargs)
+    elif isinstance(layer, SAGEConv):
+        output = torch_sage_constraint(model, layer=layer, **kwargs)
+    elif isinstance(layer, MeanAggregation):
+        output = global_mean_pool(model, **kwargs)
+    elif isinstance(layer, SumAggregation):
+        output = global_add_pool(model, **kwargs)
+    elif isinstance(layer, ReLU):
+        output = add_relu_constraint(model, **kwargs)
+    else:
+        raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
+    return output
 
 
 def get_matmul_bounds(MVar, W):
@@ -101,7 +120,7 @@ def order_onehot_features(model, A, X):
 #     return ts
 
 
-def add_relu_constraint(model, X, name=None):
+def add_relu_constraint(model, X, name=None, **kwargs):
     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
     model.update()
     ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts")
@@ -128,6 +147,7 @@ def add_sage_constraint(
     project=False,
     name=None,
     aggr="mean",
+    **kwargs,
 ):
     # Returns the output of a GraphSAGE convolutional layer, see the implementation in PyTorch-Geometric for details about the parameters
     model.update()
@@ -212,7 +232,7 @@ def add_sage_constraint(
     return ts
 
 
-def global_add_pool(model, X, name=None):
+def global_add_pool(model, X, name=None, **kwargs):
     # Outputs variables constrained to the sum of node features element-wise
     model.update()
     sums = model.addMVar(
@@ -225,7 +245,7 @@ def global_add_pool(model, X, name=None):
     return sums[np.newaxis, :]
 
 
-def global_mean_pool(model, X, name=None):
+def global_mean_pool(model, X, name=None, **kwargs):
     # Outputs variables constrained to the mean of node features element-wise
     model.update()
     averages = model.addMVar(
@@ -241,7 +261,7 @@ def global_mean_pool(model, X, name=None):
     return averages[np.newaxis, :]
 
 
-def torch_fc_constraint(model, X, layer, name=None, max_output=None):
+def torch_fc_constraint(model, X, layer, name=None, max_output=None, **kwargs):
     # Encodes a PyTorch Linear layer based on the input X
     weight = layer.get_parameter("weight").detach().numpy()
     bias = layer.get_parameter("bias").detach().numpy()
@@ -252,7 +272,7 @@ def torch_fc_constraint(model, X, layer, name=None, max_output=None):
     return add_fc_constraint(model, X, W=weight, b=bias, name=name)
 
 
-def torch_sage_constraint(model, A, X, layer, name=None):
+def torch_sage_constraint(model, A, X, layer, name=None, **kwargs):
     # Encodes a PyTorch-Geometric GraphSAGE convolutional layer object based on the input X and A
     # TODO: Cleanup
     lin_r_weight = layer.get_parameter("lin_r.weight").detach().numpy()
@@ -279,9 +299,7 @@ def torch_sage_constraint(model, A, X, layer, name=None):
 
 def get_cosine_similarity(model, var, vec, name="cosine_similarity"):
     # Cosine Similarity between variable var and scalar vec
-    cosine_similarity = model.addVar(
-        lb=0, ub=1, name=name
-    )  # Add variables for cosine similarity
+    cosine_similarity = model.addVar(lb=0, ub=1, name=name)
     var_magnitude = model.addVar(
         lb=0, ub=sum(var.getAttr("ub") ** 2) ** 0.5, name=f"{name}_magnitude"
     )  # Variables for embedding magnitude, intermediate value in calculation
@@ -304,7 +322,7 @@ def get_l2_distance(model, var, vec, name="l2_distance"):
             np.maximum(var.getAttr("ub").clip(min=0).abs()),
         )
     )
-    l2_distance = model.addVar(lb=0, ub=ub, name=name)  # Add variables for L2 Distance
+    l2_distance = model.addVar(lb=0, ub=ub, name=name)
     model.addConstr(
         l2_distance * l2_distance == gp.quicksum((vec - var) * (vec - var)),
         name=f"{name}_constr",
@@ -319,9 +337,7 @@ def get_squared_l2_distance(model, var, vec, name="squared_l2_distance"):
             np.maximum(var.getAttr("ub").clip(min=0).abs()),
         )
     )
-    squared_l2_distance = model.addVar(
-        lb=0, ub=ub, name=name
-    )  # Add variables for L2 Distance
+    squared_l2_distance = model.addVar(lb=0, ub=ub, name=name)
     model.addConstr(
         squared_l2_distance >= gp.quicksum((vec - var) * (vec - var)),
         name=f"{name}_constr",

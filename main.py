@@ -5,9 +5,6 @@ from torch_geometric.utils import to_dense_adj, dense_to_sparse
 from torch_geometric.data import Data
 import networkx as nx
 import os
-from torch.nn import Linear, ReLU
-from torch_geometric.nn.aggr import SumAggregation, MeanAggregation
-from torch_geometric.nn import SAGEConv
 import pickle
 import matplotlib.pyplot as plt
 from torch_geometric.utils import to_networkx
@@ -42,15 +39,9 @@ dataset = get_dataset(dataset_name)
 num_node_features = dataset.num_node_features
 
 
-def canonicalize_graph(graph, nn=None, weird=None):
+def canonicalize_graph(graph):
     # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
     # TODO: Generalize to non one-hot vector node features
-
-    # Lexicographic ordering of node embeddings
-    # all_outputs = nn.get_all_layer_outputs(graph)
-    # node_embedding = dict(all_outputs)["Conv_2_Relu"].detach().numpy()
-    # node_embedding_indices = (node_embedding @ weird)
-    # sorted_nodes = np.argsort(node_embedding_indices)
 
     # Lexicographic ordering of node features (one-hot)
     sorted_nodes = np.argsort(np.argmax(graph.x.detach().numpy(), axis=1))
@@ -257,47 +248,14 @@ if __name__ == "__main__":
     ## For each layer, create and constrain decision variables to represent the output
     previous_layer_output = X
     for name, layer in nn.layers.items():
-        if isinstance(layer, Linear):
-            inverter.output_vars[name] = invert_utils.torch_fc_constraint(
-                m,
-                previous_layer_output,
-                layer,
-                name=name,
-                max_output=max_class
-                if args.trim_unneeded_outputs and name == "Output"
-                else None,
-            )
-        elif isinstance(layer, SAGEConv):
-            inverter.output_vars[name] = invert_utils.torch_sage_constraint(
-                m, A, previous_layer_output, layer, name=name
-            )
-        elif isinstance(layer, MeanAggregation):
-            inverter.output_vars[name] = invert_utils.global_mean_pool(
-                m, previous_layer_output, name=name
-            )
-        elif isinstance(layer, SumAggregation):
-            inverter.output_vars[name] = invert_utils.global_add_pool(
-                m, previous_layer_output, name=name
-            )
-        elif isinstance(layer, ReLU):
-            inverter.output_vars[name] = invert_utils.add_relu_constraint(
-                m, previous_layer_output, name=name
-            )
-        else:
-            raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
-        previous_layer_output = list(inverter.output_vars.values())[-1]
-
-    m.update()
-
-    # # Lexicographic ordering of node embeddings - didn't work
-    # node_embedding = output_vars["Conv_2_Relu"]
-    # weird = np.cumsum(node_embedding.getAttr("ub")[0])
-    # node_embedding_indices = (node_embedding @ weird) # Maybe find something better
-    # for i in range(num_nodes-1):
-    #     emebdding_indices = embedding @ embedding.getAttr("ub")
-    #     for j in range(i+1, num_nodes):
-    #         m.addConstr(emebdding_indices[i] <= emebdding_indices[j])
-    # canonicalize_graph(init_graph, nn=nn, weird=weird)
+        previous_layer_output = invert_utils.invert_torch_layer(
+            inverter.model,
+            layer,
+            name=name,
+            X=previous_layer_output,
+            A=A,
+        )
+        inverter.output_vars[name] = previous_layer_output
 
     invert_utils.order_onehot_features(inverter.m, A, X)
     canonicalize_graph(init_graph)
@@ -372,15 +330,6 @@ if __name__ == "__main__":
         ObjectiveTerm("Max Non-Target Class Output", other_outputs_max, weight=-1)
     )
 
-    m.setObjective(
-        max_output_var
-        - other_outputs_max
-        + sum(
-            sim_weights[sim_method] * regularizers[sim_method]
-            for sim_method in sim_methods
-        ),
-        GRB.MAXIMIZE,
-    )
     m.update()
 
     # Save a copy of the model
