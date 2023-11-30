@@ -17,6 +17,7 @@ from inverter import Inverter, ObjectiveTerm
 import invert_utils
 import numpy as np
 import random
+from gnn import GNN  # noqa: F401
 
 args = parse_args()
 
