@@ -406,7 +406,7 @@ if __name__ == "__main__":
                 wandb.log(solution, commit=False)
                 wandb.log(
                     {
-                        f"Output Logit {i}": solution["Output"][0, i]
+                        f"Output Logit {i}": solution["Output"].squeeze()[i]
                         for i in range(solution["Output"].shape[1])
                     },
                     commit=False,
