@@ -3,6 +3,7 @@ from gurobipy import GRB
 import pickle
 from collections import OrderedDict
 import numpy as np
+import warnings
 
 
 class ObjectiveTerm:
@@ -99,7 +100,7 @@ class Inverter:
                     for name, term in self.objective_terms.items()
                 }
 
-                for name, value in objective_term_values.items():
+                for name, var_value in objective_term_values.items():
                     term = self.objective_terms[name]
                     if not hasattr(term, "calc"):
                         continue
@@ -109,6 +110,11 @@ class Inverter:
                             for req_var in term.required_vars
                         ]
                     )
+                    if not np.allclose(var_value, real_value):
+                        warnings.warn(
+                            f"The value of the variable representing objective term {name} has diverged from the actual value",
+                            action="once",
+                        )
                     ## TODO: Something with this
 
                 solution = (
