@@ -398,21 +398,6 @@ if __name__ == "__main__":
     def callback(model, where):
         inverter.get_default_callback()(model, where)
         if where == GRB.Callback.MIPSOL:
-            # # Manually calculate and save regularizer values
-            # # This way, decision variables for regularizers can just be bounded above/below by the correct value if that helps
-            # embedding_var_value = model.cbGetSolution(embedding)
-            # similarities = {}
-            # for sim_method in sim_methods:
-            #     if sim_method == "Cosine":
-            #         sol_similarity = np.dot(embedding_var_value, phi[max_class])/(np.linalg.norm(embedding_var_value)*np.linalg.norm(phi[max_class]))
-            #     elif sim_method == "L2":
-            #         sol_similarity = np.sqrt(sum((embedding_var_value - phi[max_class])*(embedding_var_value - phi[max_class])))
-            #     elif sim_method == "Squared L2":
-            #         sol_similarity = sum((embedding_var_value - phi[max_class])*(embedding_var_value - phi[max_class]))
-            #     similarities[sim_method] = sol_similarity
-            #     embedding_sim_var_value = model.cbGetSolution(regularizers[sim_method])
-            #     print(f"Predicted {sim_method} vs Actual:", embedding_sim_var_value, sol_similarity)
-
             print("New Solution Found:", len(inverter.solutions))
             if args.log and inverter.solutions:
                 solution = inverter.solutions[-1]
