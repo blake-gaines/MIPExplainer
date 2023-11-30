@@ -7,7 +7,7 @@ import warnings
 
 
 class ObjectiveTerm:
-    def __init__(self, name, var, weight=1, calc=None, *required_vars):
+    def __init__(self, name, var, weight=1, calc=None, required_vars=[]):
         self.name = name
         self.var = var
         self.weight = weight

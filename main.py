@@ -334,8 +334,8 @@ if __name__ == "__main__":
                 var=var,
                 calc=calc,
                 weight=sim_weights["Cosine"],
+                required_vars=[embedding],
             ),
-            required_vars=embedding,
         )
     if "L2" in sim_methods:
         var, calc = invert_utils.get_l2_distance(
@@ -343,9 +343,12 @@ if __name__ == "__main__":
         )
         inverter.add_objective_term(
             ObjectiveTerm(
-                name="L2 Distance", var=var, calc=calc, weight=sim_weights["L2"]
+                name="L2 Distance",
+                var=var,
+                calc=calc,
+                weight=sim_weights["L2"],
+                required_vars=[embedding],
             ),
-            required_vars=embedding,
         )
     if "Squared L2" in sim_methods:
         var, calc = invert_utils.get_l2_distance(
@@ -357,8 +360,8 @@ if __name__ == "__main__":
                 var=var,
                 calc=calc,
                 weight=sim_weights["Squared L2"],
+                required_vars=[embedding],
             ),
-            required_vars=embedding,
         )
     m.update()
 
