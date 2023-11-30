@@ -19,4 +19,5 @@ dependencies:
   - pytorch::pytorch >= 2.0.0
   - matplotlib
   - wandb
+  - pytorch::torchvision
 prefix: /opt/anaconda3/envs/InvertGNNs
