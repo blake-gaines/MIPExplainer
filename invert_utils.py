@@ -123,7 +123,12 @@ def order_onehot_features(model, A, X):
 def add_relu_constraint(model, X, name=None, **kwargs):
     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
     model.update()
-    ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts")
+    ts = model.addMVar(
+        X.shape,
+        lb=X.getAttr("lb").clip(min=0),
+        ub=X.getAttr("ub").clip(min=0),
+        name=f"{name}_ts",
+    )
 
     X_list = np.array(X.tolist()).flatten()
     t_list = np.array(ts.tolist()).flatten()
