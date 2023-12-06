@@ -125,8 +125,8 @@ def add_relu_constraint(model, X, name=None, **kwargs):
     model.update()
     ts = model.addMVar(X.shape, lb=0, ub=X.getAttr("ub").clip(min=0), name=f"{name}_ts")
 
-    X_list = [x for x_row in X.tolist() for x in x_row]
-    t_list = [t for t_row in ts.tolist() for t in t_row]
+    X_list = np.array(X.tolist()).flatten()
+    t_list = np.array(ts.tolist()).flatten()
 
     model.update()
 
