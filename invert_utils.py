@@ -1,35 +1,40 @@
 import gurobipy as gp
 import numpy as np
 from numpy.linalg import norm
-from torch.nn import Linear, ReLU
+from torch.nn import Linear, ReLU, Conv2d, MaxPool2d, Flatten
 from torch_geometric.nn.aggr import SumAggregation, MeanAggregation
 from torch_geometric.nn import SAGEConv
+from math import floor
+from tqdm.autonotebook import tqdm
 
 
 def invert_torch_layer(model, layer, **kwargs):
     if isinstance(layer, Linear):
-        output = torch_fc_constraint(model, layer=layer, **kwargs)
+        return torch_fc_constraint(model, layer=layer, **kwargs)
     elif isinstance(layer, SAGEConv):
-        output = torch_sage_constraint(model, layer=layer, **kwargs)
+        return torch_sage_constraint(model, layer=layer, **kwargs)
     elif isinstance(layer, MeanAggregation):
-        output = global_mean_pool(model, **kwargs)
+        return global_mean_pool(model, **kwargs)
     elif isinstance(layer, SumAggregation):
-        output = global_add_pool(model, **kwargs)
+        return global_add_pool(model, **kwargs)
     elif isinstance(layer, ReLU):
-        output = add_relu_constraint(model, **kwargs)
+        return add_relu_constraint(model, **kwargs)
+    elif isinstance(layer, Conv2d):
+        return add_torch_conv2d_constraint(model, layer, **kwargs)
+    elif isinstance(layer, MaxPool2d):
+        return add_torch_maxpool2d_constraint(model, layer, **kwargs)
+    elif isinstance(layer, Flatten):
+        return flatten(**kwargs)
     else:
         raise NotImplementedError(f"layer type {layer} has no MIQCP analog")
-    return output
 
 
-def get_matmul_bounds(MVar, W):
+def get_matmul_bounds(V, W):
     # Define the bounds of AW, where A is a matrix of decision variables and W is a matrix of fixed scalars
-    lower_bounds = (
-        (MVar.getAttr("lb") @ W.clip(min=0)) + (MVar.getAttr("ub") @ W.clip(max=0))
-    ).squeeze()
-    upper_bounds = (
-        (MVar.getAttr("ub") @ W.clip(min=0)) + (MVar.getAttr("lb") @ W.clip(max=0))
-    ).squeeze()
+    lower_bounds = (V.getAttr("lb") @ W.clip(min=0)) + (V.getAttr("ub") @ W.clip(max=0))
+    upper_bounds = (V.getAttr("ub") @ W.clip(min=0)) + (V.getAttr("lb") @ W.clip(max=0))
+    if not np.less_equal(lower_bounds, upper_bounds).all():
+        breakpoint()
     assert np.less_equal(lower_bounds, upper_bounds).all()
     return lower_bounds, upper_bounds
 
@@ -47,6 +52,177 @@ def add_fc_constraint(model, X, W, b, name=None):
         ts == X @ W.T + b, name=f"{name}_output_constraint" if name else None
     )
     return ts[np.newaxis, :]
+
+
+def flatten(X, name=None, **kwargs):
+    return X.reshape(-1, order="C")  # TODO: Check order
+
+
+def add_torch_maxpool2d_constraint(model, layer, X, name=None):
+    model.update()
+
+    C = X.shape[-3]
+    Hout = floor(
+        (
+            (
+                X.shape[-2]
+                + 2 * layer.padding
+                - layer.dilation * (layer.kernel_size - 1)
+                - 1
+            )
+            / layer.stride
+        )
+        + 1
+    )
+    Wout = floor(
+        (
+            (
+                X.shape[-1]
+                + 2 * layer.padding
+                - layer.dilation * (layer.kernel_size - 1)
+                - 1
+            )
+            / layer.stride
+        )
+        + 1
+    )
+
+    ts = model.addMVar(
+        (
+            C,
+            Hout,
+            Wout,
+        ),
+        lb=-float("inf"),
+        ub=float("inf"),
+    )
+
+    for channel in range(C):
+        for i in range(Hout):
+            for j in range(Wout):
+                model.addGenConstrMax(
+                    ts[channel, i, j],
+                    np.array(X[0, i : i + 2, j : j + 2].tolist()).flatten(),
+                    name=f"{name}_max_constr_{channel}_{i}_{j}" if name else None,
+                )
+
+    return ts
+
+
+def add_torch_conv2d_constraint(model, layer, X, name=None):
+    model.update()
+
+    weight = layer.weight.detach().numpy()
+    bias_vector = layer.bias.detach().numpy()
+
+    N = X.shape[0]
+    Cout = weight.shape[0]
+    Hout = floor(
+        (
+            (
+                X.shape[-2]
+                + 2 * layer.padding[0]
+                - layer.dilation[0] * (layer.kernel_size[0] - 1)
+                - 1
+            )
+            / layer.stride[0]
+        )
+        + 1
+    )
+    Wout = floor(
+        (
+            (
+                X.shape[-1]
+                + 2 * layer.padding[1]
+                - layer.dilation[1] * (layer.kernel_size[1] - 1)
+                - 1
+            )
+            / layer.stride[1]
+        )
+        + 1
+    )
+
+    ts = model.addMVar(
+        (
+            N,
+            Cout,
+            Hout,
+            Wout,
+        ),
+        lb=-float("inf"),
+        ub=float("inf"),
+        name=f"{name}_t" if name else None,
+    )
+
+    model.update()
+
+    X_array = X  # np.array(X.tolist())
+
+    assert (
+        weight[0][np.newaxis, :].shape
+        == X_array[:, :, 0 : 0 + weight[0].shape[-2], 0 : 0 + weight[0].shape[-1]].shape
+    ), (
+        weight[0][np.newaxis, :].shape,
+        X_array[:, :, 0 : 0 + weight[0].shape[-2], 0 : 0 + weight[0].shape[-1]].shape,
+    )
+
+    # TODO: Parallelize
+    for kernel_index in tqdm(range(Cout), desc=name):
+        kernel = weight[kernel_index]
+        bias = bias_vector[kernel_index]
+
+        for i in range(0, Hout):
+            for j in range(0, Wout):
+                model.addConstr(
+                    ts[:, kernel_index, i, j]
+                    == (
+                        kernel[np.newaxis, :]
+                        * X_array[
+                            :,
+                            :,
+                            i : i + kernel.shape[-2],
+                            j : j + kernel.shape[-1],
+                        ]
+                    ).sum()  # TODO: Broken for N>1
+                    + bias,
+                    name=f"{name}_output_constraint_{kernel_index}_{i}_{j}"
+                    if name
+                    else None,
+                )
+                # ts[:, kernel_index, i, j].setAttr(
+                #     "lb",
+                #     (
+                #         kernel.clip(min=0)
+                #         * X_array[
+                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
+                #         ].getAttr("lb")
+                #         + kernel.clip(max=0)
+                #         * X_array[
+                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
+                #         ].getAttr("ub")
+                #     )
+                #     .reshape((N, -1))
+                #     .sum(axis=1)  # TODO: Check Axis
+                #     + bias,
+                # )
+                # ts[:, kernel_index, i, j].setAttr(
+                #     "ub",
+                #     (
+                #         kernel.clip(min=0)
+                #         * X_array[
+                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
+                #         ].getAttr("ub")
+                #         + kernel.clip(max=0)
+                #         * X_array[
+                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
+                #         ].getAttr("lb")
+                #     )
+                #     .reshape((N, -1))
+                #     .sum(axis=1)
+                #     + bias,
+                # )
+    model.update()
+    return ts
 
 
 def add_gcn_constraint(model, A, X, W, b, name=None):  # Unnormalized Adjacency Matrix
