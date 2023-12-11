@@ -84,7 +84,8 @@ class Inverter:
             )
 
     def load_model(self, file_name="model.mps", input_var_names=[]):
-        self.m = gp.read(file_name)
+        self.model = gp.read(file_name)
+        self.m = self.model
         self.set_input_vars(
             {name: self.m.getVarByName(name) for name in input_var_names}
         )
@@ -98,11 +99,11 @@ class Inverter:
     def solve(self, callback=None, param_file=None, output_file=None, **kwargs):
         if callback is None:
             callback = self.get_default_callback()
-        # # Check variables are bounded or binary
-        # for var in self.m.getVars():
-        #     assert var.vtype == GRB.BINARY or (
-        #         var.LB != float("-inf") and var.UB != float("inf")
-        #     ), f"Variable {var.VarName} is unbounded."
+        # Check variables are bounded or binary
+        for var in self.m.getVars():
+            assert var.vtype == GRB.BINARY or (
+                var.LB != float("-inf") and var.UB != float("inf")
+            ), f"Variable {var.VarName} is unbounded."
 
         for param_name, param_value in kwargs.items():
             self.m.setParam(param_name, param_value)
@@ -127,7 +128,11 @@ class Inverter:
 
     def get_default_callback(self):
         def solver_callback(model, where):
+            if where == GRB.Callback.MIP:
+                pass
+
             if where == GRB.Callback.MIPSOL:
+                print("New Solution Found")
                 solution_inputs = {
                     name: model.cbGetSolution(var)
                     for name, var in self.input_vars.items()
@@ -151,7 +156,8 @@ class Inverter:
                 if not np.allclose(nn_output, output_var_value):
                     "uh oh :("
                     warnings.warn(
-                        f"Model outputs diverge: max difference is {np.abs(nn_output-output_var_value).max():.3e}"
+                        f"Model outputs diverge: max difference is {np.abs(nn_output-output_var_value).max():.3e}",
+                        category=RuntimeWarning,
                     )
 
                 objective_term_values = {
@@ -224,24 +230,25 @@ class Inverter:
 
             # Check variables and ouputs have the same shape
             assert var.shape == output.shape, (layer_name, var.shape, output.shape)
-            # # Check initializations for all variables are geq the lower bounds
-            # assert np.less_equal(var.getAttr("lb"), output).all(), (
-            #     layer_name,
-            #     f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}',
-            #     np.greater(var.getAttr("lb"), output).sum(),
-            # )
-            # # Check initializations for all variables are leq the upper bounds
-            # assert np.greater_equal(var.getAttr("ub"), output).all(), (
-            #     layer_name,
-            #     var.shape,
-            #     var.getAttr("ub").max(),
-            #     output.max(),
-            #     np.less(var.getAttr("ub"), output).sum(),
-            # )
+            # Check initializations for all variables are geq the lower bounds
+            assert np.less_equal(var.getAttr("lb"), output).all(), (
+                layer_name,
+                f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}',
+                np.greater(var.getAttr("lb"), output).sum(),
+            )
+            # Check initializations for all variables are leq the upper bounds
+            assert np.greater_equal(var.getAttr("ub"), output).all(), (
+                layer_name,
+                var.shape,
+                var.getAttr("ub").max(),
+                output.max(),
+                np.less(var.getAttr("ub"), output).sum(),
+            )
 
             var.Start = output
 
             if debug_mode:
+                print(f"Fixing Consteraint: {layer_name}")
                 self.m.addConstr(var == output, name=f"fixing_constraint_{layer_name}")
 
         self.m.update()

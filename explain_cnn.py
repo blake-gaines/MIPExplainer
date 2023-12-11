@@ -11,6 +11,12 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 from torchsummary import summary
+import pickle
+
+
+def prune_weights_below_threshold(module, threshold):
+    for name, param in module.named_parameters():
+        param.data[param.abs() < threshold] = 0.0
 
 
 class Net(nn.Module):
@@ -314,6 +320,7 @@ def main():
     nn = Net().to(device)
     nn.load_state_dict(torch.load("mnist_cnn.pt"))
     nn.eval()
+    prune_weights_below_threshold(nn, 1e-5)
 
     summary(nn, input_size=dataset1[0][0].shape)
 
@@ -327,46 +334,62 @@ def main():
         X = inverter.get_mvar("X", shape=(1, 1, 28, 28))
         inverter.set_input_vars({"X": X})
         inverter.load_inverter()
+        inverter.m.update()
     else:
         X = inverter.m.addMVar(
-            (1, 1, 28, 28), lb=-255, ub=255, vtype=GRB.CONTINUOUS, name="X"
+            (1, 1, 28, 28), lb=-255, ub=3, vtype=GRB.CONTINUOUS, name="X"
         )
-
-        # inverter.set_input_vars([("X", X)])
         inverter.set_input_vars({"X": X})
-
-        # invert_utils.add_torch_conv2d_constraint(m, layer=nn.conv1, X=X)
         previous_layer_output = X
+
+        # previous_layer_output = inverter.output_vars["conv2_ReLU"]
         for name, layer in nn.layers.items():
-            if name == "max_pool2d":
-                break
+            # if "conv" in name:
+            #     continue
+            # if name == "dropout1":  # "max_pool2d":
+            #     break
             # if name == "fc1":
             #     breakpoint()
             print("Working on layer", name)
             if isinstance(layer, torch.nn.Dropout):
                 continue
-            previous_layer_output = invert_utils.invert_torch_layer(
-                inverter.model,
-                layer,
-                name=name,
-                X=previous_layer_output,
-            )
+            try:
+                previous_layer_output = invert_utils.invert_torch_layer(
+                    inverter.model,
+                    layer,
+                    name=name,
+                    X=previous_layer_output,
+                )
+            except Exception as e:
+                print(e)
+                breakpoint()
+            print("Output Shape:", previous_layer_output.shape)
             inverter.output_vars[name] = previous_layer_output
-
-        inverter.add_objective_term(
-            ObjectiveTerm("obj", inverter.output_vars["conv2_ReLU"][0][0][0][0])
-        )
 
         inverter.save_model()
 
         inverter.save_inverter()
 
-    inverter.warm_start({"X": dataset1[0][0][np.newaxis, :]})
+    inverter.add_objective_term(
+        ObjectiveTerm("obj", inverter.output_vars["fc2"].reshape(-1)[0])
+    )
 
-    inverter.solve()
+    inverter.warm_start({"X": dataset1[0][0][np.newaxis, :]}, debug_mode=False)
 
+    default_callback = inverter.get_default_callback()
+
+    def callback(model, where):
+        default_callback(model, where)
+        if where == GRB.Callback.MIP:
+            pass
+
+    inverter.solve(Presolve=2)  # DualReductions=0, FeasibilityTol=1e-4, Presolve=0
+    print("STATUS", inverter.m.status)
     if inverter.m.Status in [3, 4]:  # If the model is infeasible, see why
         inverter.computeIIS()
+
+    with open("solutions/solutions.pkl", "wb") as f:
+        pickle.dump(inverter.solutions, f)
 
 
 if __name__ == "__main__":
