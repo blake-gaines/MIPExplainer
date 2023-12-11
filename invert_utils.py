@@ -42,8 +42,10 @@ def get_matmul_bounds(V, W):
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
     lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
+    # if name == "fc2":
+    #     breakpoint()
     ts = model.addMVar(
-        (W.shape[0],),
+        (1, W.shape[0]),
         lb=lower_bounds + b,
         ub=upper_bounds + b,
         name=f"{name}_t" if name else None,
@@ -51,16 +53,17 @@ def add_fc_constraint(model, X, W, b, name=None):
     model.addConstr(
         ts == X @ W.T + b, name=f"{name}_output_constraint" if name else None
     )
-    return ts[np.newaxis, :]
+    return ts
 
 
 def flatten(X, name=None, **kwargs):
-    return X.reshape(-1, order="C")  # TODO: Check order
+    return X.reshape((1, -1), order="C")  # TODO: Check order
 
 
 def add_torch_maxpool2d_constraint(model, layer, X, name=None):
     model.update()
 
+    N = X.shape[0]
     C = X.shape[-3]
     Hout = floor(
         (
@@ -89,6 +92,7 @@ def add_torch_maxpool2d_constraint(model, layer, X, name=None):
 
     ts = model.addMVar(
         (
+            N,
             C,
             Hout,
             Wout,
@@ -97,13 +101,31 @@ def add_torch_maxpool2d_constraint(model, layer, X, name=None):
         ub=float("inf"),
     )
 
-    for channel in range(C):
-        for i in range(Hout):
-            for j in range(Wout):
+    stride = layer.stride
+
+    for channel in tqdm(range(C), desc=name):
+        for i in range(0, Hout):
+            for j in range(0, Wout):
+                a, b, c, d = (
+                    i * stride,
+                    i * stride + layer.kernel_size,
+                    j * stride,
+                    j * stride + layer.kernel_size,
+                )
                 model.addGenConstrMax(
-                    ts[channel, i, j],
-                    np.array(X[0, i : i + 2, j : j + 2].tolist()).flatten(),
-                    name=f"{name}_max_constr_{channel}_{i}_{j}" if name else None,
+                    ts[:, channel, i, j],
+                    X[:, channel, a:b, c:d].reshape(-1).tolist(),
+                    name=f"{name}_max_constr_{channel}_{i}_{j}"
+                    if name
+                    else None,  # TODO: Broken for N>1
+                )
+                ts[:, channel, i, j].setAttr(
+                    "lb",
+                    X[:, channel, a:b, c:d].getAttr("lb").max(),
+                )
+                ts[:, channel, i, j].setAttr(
+                    "ub",
+                    X[:, channel, a:b, c:d].getAttr("ub").max(),
                 )
 
     return ts
@@ -189,38 +211,39 @@ def add_torch_conv2d_constraint(model, layer, X, name=None):
                     if name
                     else None,
                 )
-                # ts[:, kernel_index, i, j].setAttr(
-                #     "lb",
-                #     (
-                #         kernel.clip(min=0)
-                #         * X_array[
-                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
-                #         ].getAttr("lb")
-                #         + kernel.clip(max=0)
-                #         * X_array[
-                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
-                #         ].getAttr("ub")
-                #     )
-                #     .reshape((N, -1))
-                #     .sum(axis=1)  # TODO: Check Axis
-                #     + bias,
-                # )
-                # ts[:, kernel_index, i, j].setAttr(
-                #     "ub",
-                #     (
-                #         kernel.clip(min=0)
-                #         * X_array[
-                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
-                #         ].getAttr("ub")
-                #         + kernel.clip(max=0)
-                #         * X_array[
-                #             :, :, i : i + kernel.shape[1], j : j + kernel.shape[2]
-                #         ].getAttr("lb")
-                #     )
-                #     .reshape((N, -1))
-                #     .sum(axis=1)
-                #     + bias,
-                # )
+                ts[:, kernel_index, i, j].setAttr(
+                    "lb",
+                    (
+                        kernel.clip(min=0)[np.newaxis, :]
+                        * X_array[
+                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
+                        ].getAttr("lb")
+                        + kernel.clip(max=0)[np.newaxis, :]
+                        * X_array[
+                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
+                        ].getAttr("ub")
+                    )
+                    .reshape((N, -1))
+                    .sum(axis=1)
+                    + bias,
+                    # TODO: Check Axis
+                )
+                ts[:, kernel_index, i, j].setAttr(
+                    "ub",
+                    (
+                        kernel.clip(min=0)[np.newaxis, :]
+                        * X_array[
+                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
+                        ].getAttr("ub")
+                        + kernel.clip(max=0)[np.newaxis, :]
+                        * X_array[
+                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
+                        ].getAttr("lb")
+                    )
+                    .reshape((N, -1))
+                    .sum(axis=1)
+                    + bias,
+                )
     model.update()
     return ts
 
