@@ -24,17 +24,17 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.layers = nn.ModuleDict()
 
-        self.layers["conv1"] = nn.Conv2d(1, 32, 3, 1)
+        self.layers["conv1"] = nn.Conv2d(1, 16, 3, 1)
         self.layers["conv1_ReLU"] = nn.ReLU()
-        self.layers["conv2"] = nn.Conv2d(32, 64, 3, 1)
+        self.layers["conv2"] = nn.Conv2d(16, 8, 3, 1)
         self.layers["conv2_ReLU"] = nn.ReLU()
         self.layers["max_pool2d"] = nn.MaxPool2d(2)
         self.layers["dropout1"] = nn.Dropout(0.25)
         self.layers["flatten"] = nn.Flatten()
         self.layers["dropout2"] = nn.Dropout(0.5)
-        self.layers["fc1"] = nn.Linear(9216, 128)
+        self.layers["fc1"] = nn.Linear(1152, 32)
         self.layers["fc1_ReLU"] = nn.ReLU()
-        self.layers["fc2"] = nn.Linear(128, 10)
+        self.layers["fc2"] = nn.Linear(32, 10)
 
     def forward(self, X):
         X = torch.Tensor(X)
@@ -202,7 +202,7 @@ def train_network():
     nn = Net().to(device)
     # nn.load_state_dict(torch.load("mnist_cnn.pt"))
 
-    optimizer = optim.Adadelta(nn.parameters(), lr=args.lr)
+    optimizer = optim.Adadelta(nn.parameters(), lr=args.lr, weight_decay=0.001)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
     for epoch in range(1, args.epochs + 1):
@@ -337,7 +337,7 @@ def main():
         inverter.m.update()
     else:
         X = inverter.m.addMVar(
-            (1, 1, 28, 28), lb=-255, ub=3, vtype=GRB.CONTINUOUS, name="X"
+            (1, 1, 28, 28), lb=-3, ub=3, vtype=GRB.CONTINUOUS, name="X"
         )
         inverter.set_input_vars({"X": X})
         previous_layer_output = X
@@ -374,7 +374,10 @@ def main():
         ObjectiveTerm("obj", inverter.output_vars["fc2"].reshape(-1)[0])
     )
 
-    inverter.warm_start({"X": dataset1[0][0][np.newaxis, :]}, debug_mode=False)
+    debug_mode = False
+    if debug_mode:
+        print("SOLVING IN DEBUG MODE")
+    inverter.warm_start({"X": dataset1[0][0][np.newaxis, :]}, debug_mode=debug_mode)
 
     default_callback = inverter.get_default_callback()
 
@@ -383,7 +386,9 @@ def main():
         if where == GRB.Callback.MIP:
             pass
 
-    inverter.solve(Presolve=2)  # DualReductions=0, FeasibilityTol=1e-4, Presolve=0
+    inverter.solve(
+        Presolve=2, FeasibilityTol=1e-5
+    )  # DualReductions=0, FeasibilityTol=1e-4, Presolve=0
     print("STATUS", inverter.m.status)
     if inverter.m.Status in [3, 4]:  # If the model is infeasible, see why
         inverter.computeIIS()
