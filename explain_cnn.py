@@ -24,15 +24,20 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.layers = nn.ModuleDict()
 
-        self.layers["conv1"] = nn.Conv2d(1, 16, 3, 1)
+        self.layers["conv1"] = nn.Conv2d(1, 8, 3, 1)
         self.layers["conv1_ReLU"] = nn.ReLU()
-        self.layers["conv2"] = nn.Conv2d(16, 8, 3, 1)
+        self.layers["conv2"] = nn.Conv2d(8, 8, 3, 1)
         self.layers["conv2_ReLU"] = nn.ReLU()
-        self.layers["max_pool2d"] = nn.MaxPool2d(2)
+        self.layers["max_pool2d_1"] = nn.MaxPool2d(2)
+        self.layers["conv3"] = nn.Conv2d(8, 8, 3, 1)
+        self.layers["conv3_ReLU"] = nn.ReLU()
+        self.layers["conv4"] = nn.Conv2d(8, 8, 3, 1)
+        self.layers["conv4_ReLU"] = nn.ReLU()
+        self.layers["max_pool2d_2"] = nn.MaxPool2d(2)
         self.layers["dropout1"] = nn.Dropout(0.25)
         self.layers["flatten"] = nn.Flatten()
         self.layers["dropout2"] = nn.Dropout(0.5)
-        self.layers["fc1"] = nn.Linear(1152, 32)
+        self.layers["fc1"] = nn.Linear(128, 32)
         self.layers["fc1_ReLU"] = nn.ReLU()
         self.layers["fc2"] = nn.Linear(32, 10)
 
@@ -44,7 +49,7 @@ class Net(nn.Module):
         return output
 
     def get_all_layer_outputs(self, X):
-        X = torch.Tensor(X)
+        X = torch.Tensor(X).to(next(iter((self.layers.values()))).weight.dtype)
         all_outputs = [("Input", X)]
         for name, layer in self.layers.items():
             all_outputs.append((name, layer(all_outputs[-1][1])))
@@ -167,6 +172,12 @@ def train_network():
     )
     parser.add_argument(
         "--save-nn",
+        action="store_true",
+        default=False,
+        help="For Saving the current nn",
+    )
+    parser.add_argument(
+        "--load",
         action="store_true",
         default=False,
         help="For Saving the current nn",
@@ -310,7 +321,11 @@ def main():
         test_kwargs.update(cuda_kwargs)
 
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.ConvertImageDtype(torch.float64),
+        ]
     )
     dataset1 = datasets.MNIST("../data", train=True, download=True, transform=transform)
     # dataset2 = datasets.MNIST("../data", train=False, transform=transform)
@@ -320,9 +335,10 @@ def main():
     nn = Net().to(device)
     nn.load_state_dict(torch.load("mnist_cnn.pt"))
     nn.eval()
+    nn.to(torch.float64)
     prune_weights_below_threshold(nn, 1e-5)
 
-    summary(nn, input_size=dataset1[0][0].shape)
+    # summary(nn, input_size=dataset1[0][0].shape)
 
     env = gp.Env(logfilename="")
 
@@ -346,8 +362,6 @@ def main():
         for name, layer in nn.layers.items():
             # if "conv" in name:
             #     continue
-            # if name == "dropout1":  # "max_pool2d":
-            #     break
             # if name == "fc1":
             #     breakpoint()
             print("Working on layer", name)
@@ -370,14 +384,43 @@ def main():
 
         inverter.save_inverter()
 
-    inverter.add_objective_term(
-        ObjectiveTerm("obj", inverter.output_vars["fc2"].reshape(-1)[0])
+    print(list(inverter.output_vars.keys()))
+
+    diffs = X - dataset1[0][0].detach().numpy()
+    print("DIFFS SHAPE", (diffs * diffs).sum().shape)
+    # TODO: Determine Lower Bound
+    dist = inverter.model.addVar(
+        name="dist",
+        ub=0,
+        lb=-1000,
+        # lb=-np.linalg.norm(
+        #     np.maximum(
+        #         np.abs(X.getAttr("ub") - dataset1[0][0].detach().numpy()),
+        #         np.abs(X.getAttr("lb") - dataset1[0][0].detach().numpy()),
+        #     )
+        # ),
     )
+    inverter.model.addConstr(dist <= -(diffs * diffs).sum(), "dist_norm_constr")
+
+    inverter.add_objective_term(ObjectiveTerm("obj", dist))
+
+    all_outputs = inverter.output_vars["fc2"].reshape(-1).tolist()
+    print(f"Target Dist Label: {dataset1[0][1]} | Warm Start Label: {dataset1[1][1]}")
+    new_index = dataset1[1][1]
+    assert new_index != dataset1[0][1]
+    for i in range(len(all_outputs)):
+        if i == new_index:
+            continue
+        inverter.model.addConstr(
+            all_outputs[i] <= all_outputs[new_index],
+            name=f"output_{i}_leq_output_{new_index}",
+        )
+        # print(f"output_{i}_leq_output_{new_index}")
 
     debug_mode = False
     if debug_mode:
         print("SOLVING IN DEBUG MODE")
-    inverter.warm_start({"X": dataset1[0][0][np.newaxis, :]}, debug_mode=debug_mode)
+    inverter.warm_start({"X": dataset1[1][0][np.newaxis, :]}, debug_mode=debug_mode)
 
     default_callback = inverter.get_default_callback()
 
@@ -386,11 +429,20 @@ def main():
         if where == GRB.Callback.MIP:
             pass
 
+    # t = inverter.model.feasRelaxS(1, False, True, True)
+    # print(t)
+
     inverter.solve(
-        Presolve=2, FeasibilityTol=1e-5
+        Presolve=2,
+        # NumericFocus=3,
+        # FeasibilityTol=1e-5,
+        # DualReductions=0,
     )  # DualReductions=0, FeasibilityTol=1e-4, Presolve=0
     print("STATUS", inverter.m.status)
-    if inverter.m.Status in [3, 4]:  # If the model is infeasible, see why
+
+    print(inverter.output_vars["fc2"].X)
+
+    if inverter.model.Status in [3, 4]:  # If the model is infeasible, see why
         inverter.computeIIS()
 
     with open("solutions/solutions.pkl", "wb") as f:
