@@ -235,8 +235,8 @@ class Inverter:
                 layer_name,
                 f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}',
                 np.greater(var.getAttr("lb"), output).sum(),
-                var.getAttr("ub")[np.greater(var.getAttr("ub"), output)],
-                output[np.greater(var.getAttr("ub"), output)],
+                var.getAttr("lb")[np.greater(var.getAttr("lb"), output)],
+                output[np.greater(var.getAttr("lb"), output)],
             )
             # Check initializations for all variables are leq the upper bounds
             assert np.greater_equal(var.getAttr("ub"), output).all(), (
