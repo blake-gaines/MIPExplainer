@@ -29,7 +29,7 @@ num_nodes = args.num_nodes
 if not model_path:
     model_path = f"models/{dataset_name}_model.pth"
 
-torch.manual_seed(12345)
+# torch.manual_seed(12345)
 # TODO: Seed for Gurobi
 
 if not os.path.isdir("solutions"):
@@ -145,11 +145,21 @@ else:
     # By default, will generate a line graph with uniform random node features
     print("Initializing with dummy graph")
     # init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
-    init_graph_adj = torch.diag_embed(
-        torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1
-    ) + torch.diag_embed(
-        torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1
-    )
+    # init_graph_adj = torch.diag_embed(
+    #     torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=-1), offset=-1
+    # ) + torch.diag_embed(
+    #     torch.diag(torch.ones((num_nodes, num_nodes)), diagonal=1), offset=1
+    # )
+    ## Randomly initialized adjacency matrix of a connected graph
+    init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
+    init_graph_adj = torch.triu(init_graph_adj, diagonal=1)
+    init_graph_adj = init_graph_adj + init_graph_adj.T
+    init_graph_adj = torch.clip(init_graph_adj, 0, 1)
+    init_graph_adj = init_graph_adj.numpy()
+    init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
+    init_graph_adj = np.clip(init_graph_adj + np.eye(num_nodes, k=-1), a_min=0, a_max=1)
+    init_graph_adj = torch.Tensor(init_graph_adj)
+
     if dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
         init_graph_x = torch.unsqueeze(torch.sum(init_graph_adj, dim=-1), dim=-1)
     elif dataset_name in ["MUTAG", "OurMotifs"]:
@@ -445,6 +455,20 @@ inverter.solve(
 # Save all solutions
 with open(output_file, "wb") as f:
     pickle.dump(inverter.solutions, f)
+
+if args.log:
+    dir = f"./results/{dataset_name}/"
+    if not os.path.isdir(dir):
+        os.makedirs(dir)
+    imgname = f"{max_class}_{num_nodes}_{wandb.run.id}"
+    fig, ax = dataset.draw_graph(
+        A=inverter.solutions[0]["A"], X=inverter.solutions[0]["X"]
+    )
+    fig.savefig(dir + imgname + "_init.png")
+    fig, ax = dataset.draw_graph(
+        A=inverter.solutions[-1]["A"], X=inverter.solutions[-1]["X"]
+    )
+    fig.savefig(dir + imgname + "_solution.png")
 
 print("Model Status:", m.Status)
 
