@@ -133,28 +133,34 @@ class GraphDataset(Dataset):
                 x_indices = X.squeeze()
             else:
                 x_indices = np.argmax(X, axis=1)
-            labels = (
-                dict(zip(range(X.shape[0]), map(label_dict.get, x_indices)))
-                if label_dict
-                else dict(zip(range(X.shape[0]), x_indices))
-            )
 
-            if color_dict is None:
-                color_dict = {
-                    i: c
-                    for i, c in enumerate(
-                        random.choices(list(mcolors.CSS4_COLORS.values()), k=X.shape[1])
-                    )
-                }
-            node_color = list(map(lambda i: color_dict.get(i, "skyblue"), x_indices))
+            if hasattr(self, "NODE_CLS"):
+                labels = (
+                    dict(zip(range(X.shape[0]), map(self.NODE_CLS.get, x_indices)))
+                    if label_dict
+                    else dict(zip(range(X.shape[0]), x_indices))
+                )
 
-        fig, ax = plt.subplots()
+            if hasattr(self, "NODE_COLOR"):
+                node_color = list(
+                    map(lambda i: self.NODE_COLOR.get(i, "skyblue"), x_indices)
+                )
+            else:
+                node_color = None
+
+        fig = plt.figure(frameon=False)
+        ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
+        ax.set_axis_off()
+        fig.add_axes(ax)
         nx.draw_networkx(
             G,
             pos=pos,
             with_labels=with_labels,
             labels=labels,
             node_color=node_color,
+            ax=ax,
+            node_size=800,
+            font_size=18,
             **kwargs,
         )
         return fig, ax
