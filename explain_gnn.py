@@ -162,7 +162,7 @@ env = gp.Env(logfilename="")
 def convert_inputs(X, A):
     X = torch.Tensor(X)
     A = torch.Tensor(A)
-    return Data(x=X, edge_index=dense_to_sparse(A)[0])
+    return {"data": Data(x=X, edge_index=dense_to_sparse(A)[0])}
 
 
 inverter = Inverter(args, nn, dataset, env, convert_inputs)
@@ -411,7 +411,8 @@ def callback(model, where):
 
 ## Warm start - create an initial solution for the model
 bound_summary = inverter.warm_start(
-    {"X": init_graph.x, "A": to_dense_adj(init_graph.edge_index).squeeze()}
+    {"X": init_graph.x, "A": to_dense_adj(init_graph.edge_index).squeeze()},
+    debug_mode=False,
 )
 print(bound_summary)
 if args.log:
@@ -421,7 +422,10 @@ if args.log:
 m.read(args.param_file)
 
 # Run Optimization
-inverter.solve(callback, TimeLimit=3600 * 6)
+inverter.solve(
+    callback,
+    TimeLimit=3600 * 6,
+)
 
 # Save all solutions
 with open(output_file, "wb") as f:
