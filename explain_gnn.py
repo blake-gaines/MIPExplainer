@@ -472,5 +472,7 @@ if args.log:
 
 print("Model Status:", m.Status)
 
+wandb.run.summary["Model Status"] = m.Status
+
 if m.Status in [3, 4]:  # If the model is infeasible, see why
     inverter.computeIIS()
