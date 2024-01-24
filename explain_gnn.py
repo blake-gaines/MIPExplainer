@@ -44,14 +44,29 @@ def canonicalize_graph(graph):
     # TODO: Generalize to non one-hot vector node features
 
     # Lexicographic ordering of node features (one-hot)
-    sorted_nodes = np.argsort(np.argmax(graph.x.detach().numpy(), axis=1))
+    feature_ordering = np.argsort(np.argmax(graph.x.detach().numpy(), axis=1))
+    node_degree_ordering = to_dense_adj(graph.edge_index).squeeze().sum(axis=1)
+    lexicographic_ordering = np.lexsort((feature_ordering, node_degree_ordering))
 
     G = to_networkx(init_graph)
 
-    # # Get source node for DFS, should be largest degree/first lexicographically (TODO)
-    # A = to_dense_adj(graph.edge_index).detach().numpy().squeeze()
-    # weighted_feature_sums = A @ (graph.x.detach().numpy() @ np.linspace(1,graph.num_node_features, num=graph.num_node_features))
-    # min_node=np.argmin(A.sum(axis=0)*num_node_features*num_nodes+weighted_feature_sums)
+    # Sort by node degree, then by lexicographic ordering
+    ## DFS to get a node ordering, prioritizing first by node degree, then by lexicographic ordering of node features
+    def lexicographic_dfs_ordering(G, node, visited):
+        visited[node] = True
+        ## Get the neighbors of the current node
+        neighbors = list(G.neighbors(node))
+        ## Sort them lexicographically by featuer and degree
+        tree_order = [node]
+        for node in feature_ordering:
+            if node in neighbors:
+                if not visited[node]:
+                    subtree_order = lexicographic_dfs_ordering(G, node, visited)
+                    tree_order.extend(subtree_order)
+        return tree_order
+
+    visited = [False] * len(graph.x)
+    sorted_nodes = lexicographic_dfs_ordering(G, lexicographic_ordering[0], visited)
 
     # # Get node ordering
     # sorted_nodes = list(nx.dfs_preorder_nodes(G, source=min_node))
