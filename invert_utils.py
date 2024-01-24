@@ -419,8 +419,8 @@ def add_sage_constraint(
     )
     ts = model.addMVar(
         (X.shape[0], lin_r_weight.shape[0]),
-        lb=ts_lower_bounds,
-        ub=ts_upper_bounds,
+        lb=ts_lower_bounds - 10,  ## TODO: FIX THIS
+        ub=ts_upper_bounds + 10,
         name=f"{name}_t" if name else None,
     )
     ts.setAttr("lb", ts_lower_bounds)
