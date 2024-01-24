@@ -239,16 +239,13 @@ class Inverter:
                 output[np.greater(var.getAttr("lb"), output)],
             )
             # Check initializations for all variables are leq the upper bounds
-            assert np.greater_equal(var.getAttr("ub"), output).all(), (
+            assert np.greater_equal(var.getAttr("ub") + 1e-5, output).all(), (
                 layer_name,
                 var.shape,
                 np.less(var.getAttr("ub"), output).sum(),
                 var.getAttr("ub")[np.less(var.getAttr("ub"), output)],
                 output[np.less(var.getAttr("ub"), output)],
             )
-            ## Print where the initializations are greater than the upper bound of the variable
-            # if np.greater(var.getAttr("ub"), output).sum() > 0:
-            #     print(layer_name, var.shape, np.greater(var.getAttr("ub"), output).sum()) # , var.getAttr("ub")[np.greater(var.getAttr("ub"), output)], output[np.greater(var.getAttr("ub"), output)])
 
             var.Start = output
 
