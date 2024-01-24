@@ -423,8 +423,6 @@ def add_sage_constraint(
         ub=ts_upper_bounds + 10,
         name=f"{name}_t" if name else None,
     )
-    ts.setAttr("lb", ts_lower_bounds)
-    ts.setAttr("ub", ts_upper_bounds)
 
     # Constrain outputs to correct values
     model.addConstr(
