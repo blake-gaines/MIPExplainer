@@ -17,3 +17,6 @@ class Shapes_Ones_dataset(GraphDataset):
             open(os.path.join(self.root, "Shapes_Ones/dataset.pkl"), "rb")
         )
         return dataset
+
+    def draw_graph(self, *args, **kwargs):
+        return super().draw_graph(*args, **kwargs, with_labels=False)
