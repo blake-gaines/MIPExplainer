@@ -364,7 +364,7 @@ def add_sage_constraint(
 
     # Create decision variables to store the aggregated features of each node's neighborhood
     aggregated_features = model.addMVar(
-        X.shape, lb=1, ub=-1, name=f"{name}_aggregated_features"
+        X.shape, lb=-float("inf"), ub=float("inf"), name=f"{name}_aggregated_features"
     )
 
     model.update()
