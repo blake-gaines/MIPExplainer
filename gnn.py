@@ -17,6 +17,7 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import os
 import numpy as np
+import pickle
 
 
 def prune_weights_below_threshold(module, threshold):
@@ -176,20 +177,20 @@ if __name__ == "__main__":
     if not os.path.isdir("models"):
         os.mkdir("models")
 
-    epochs = 200
+    epochs = 20
     num_inits = 5
     num_explanations = 3
     conv_type = "sage"
     global_aggr = "mean"
     conv_aggr = "sum"
-    prune_threshold = 1e-3
+    prune_threshold = 1e-5
 
     load_model = False
     # model_path = "models/Is_Acyclic_model.pth"
     # model_path = "models/OurMotifs_model_smaller.pth"
     # model_path = "models/Shapes_Clean_model_small.pth"
-    model_path = "models/MUTAG_model_3.pth"
-    # model_path = "models/Shapes_Ones_model.pth"
+    # model_path = "models/MUTAG_model_3.pth"
+    model_path = "models/Shapes_Ones_model_2.pth"
     # model_path = "models/Is_Acyclic_Ones_model.pth"
 
     log_run = False
@@ -198,11 +199,12 @@ if __name__ == "__main__":
     # from torch_geometric.datasets.graph_generator import BAGraph
     # from torch_geometric.datasets.motif_generator import HouseMotif
     # from torch_geometric.datasets.motif_generator import CycleMotif
-    dataset = TUDataset(root="data/TUDataset", name="MUTAG")
+    # dataset = TUDataset(root="data/TUDataset", name="MUTAG")
     # with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
     # with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
     # with open("data/Shapes_Clean/dataset.pkl", "rb") as f: dataset = pickle.load(f)
-    # with open("data/Shapes_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+    with open("data/Shapes_Ones/dataset.pkl", "rb") as f:
+        dataset = pickle.load(f)
     # with open("data/Is_Acyclic_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
 
     print()
@@ -230,16 +232,23 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     if not load_model:
+        # model = GNN(
+        #     in_channels=num_node_features,
+        #     out_channels=num_classes,
+        #     conv_features=[64, 32],
+        #     lin_features=[16, 8],
+        #     global_aggr=global_aggr,
+        #     conv_aggr=conv_aggr,
+        # )
+        # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[64, 32, 16], lin_features=[16, 16], global_aggr=global_aggr, conv_aggr=conv_aggr)
         model = GNN(
             in_channels=num_node_features,
             out_channels=num_classes,
-            conv_features=[64, 32],
-            lin_features=[16, 8],
+            conv_features=[16, 16],
+            lin_features=[8],
             global_aggr=global_aggr,
             conv_aggr=conv_aggr,
         )
-        # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[64, 32, 16], lin_features=[16, 16], global_aggr=global_aggr, conv_aggr=conv_aggr)
-        # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[4, 4], lin_features=[4], global_aggr=global_aggr, conv_aggr=conv_aggr)
         model.to(torch.float64)
         # optimizer = torch.optim.AdamW(model.parameters(), weight_decay=0.0001)
         optimizer = torch.optim.Adam(model.parameters(), weight_decay=0.0001, lr=0.01)
