@@ -15,6 +15,7 @@ import invert_utils
 import numpy as np
 import random
 from gnn import GNN  # noqa: F401
+import time
 
 args = parse_args()
 
@@ -190,6 +191,8 @@ def convert_inputs(X, A):
     return {"data": Data(x=X, edge_index=dense_to_sparse(A)[0])}
 
 
+start_time = time.time()
+
 inverter = Inverter(args, nn, dataset, env, convert_inputs)
 m = inverter.model
 
@@ -220,6 +223,7 @@ else:
     raise ValueError(f"Unknown Decision Variables for {dataset_name}")
 
 inverter.set_input_vars({"X": X, "A": A})
+inverter.set_tracked_vars({"X": X, "A": A})
 
 # Enforce canonical (maybe) representation
 # Only works for one-hot node features and assumes an undirected graph
@@ -411,7 +415,11 @@ if args.log:
 
 
 # Define the callback function for the solver to save intermediate solutions, other metrics
+mip_information = []
+
+
 def callback(model, where):
+    global mip_information
     inverter.get_default_callback()(model, where)
     if where == GRB.Callback.MIPSOL:
         print("New Solution Found:", len(inverter.solutions))
@@ -432,6 +440,31 @@ def callback(model, where):
 
         # with open(output_file, "wb") as f:
         #     pickle.dump(inverter.solutions, f)
+    elif where == GRB.Callback.MIP or where == GRB.Callback.MIPSOL:
+        # Access MIP information when upper bound is updated
+        obj_bound = model.cbGet(GRB.Callback.MIP_OBJBST)
+        best_bound = model.cbGet(GRB.Callback.MIP_OBJBND)
+        node_count = model.cbGet(GRB.Callback.MIP_NODCNT)
+        explored_node_count = model.cbGet(GRB.Callback.MIP_NODCNT)
+        unexplored_node_count = model.cbGet(GRB.Callback.MIP_NODLFT)
+        cut_count = model.cbGet(GRB.Callback.MIP_CUTCNT)
+        runtime = model.cbGet(GRB.Callback.RUNTIME)
+        work_units = model.cbGet(GRB.Callback.WORK)
+
+        # Save the information to a dictionary
+        mip_info = {
+            "ObjBound": obj_bound,
+            "BestBound": best_bound,
+            "NodeCount": node_count,
+            "ExploredNodeCount": explored_node_count,
+            "UnexploredNodeCount": unexplored_node_count,
+            "CutCount": cut_count,
+            "Runtime": runtime,
+            "WorkUnits": work_units,
+        }
+
+        # Append the dictionary to the list
+        mip_information.append(mip_info)
 
 
 ## Warm start - create an initial solution for the model
@@ -456,23 +489,55 @@ inverter.solve(
 with open(output_file, "wb") as f:
     pickle.dump(inverter.solutions, f)
 
+run_data = {"mip_information": mip_information, "solutions": inverter.solutions}
+
 if args.log:
-    dir = f"./results/{dataset_name}/"
-    if not os.path.isdir(dir):
-        os.makedirs(dir)
+    image_dir = f"./results/{dataset_name}/"
+    if not os.path.isdir(image_dir):
+        os.makedirs(image_dir)
     imgname = f"{max_class}_{num_nodes}_{wandb.run.id}"
     fig, ax = dataset.draw_graph(
         A=inverter.solutions[0]["A"], X=inverter.solutions[0]["X"]
     )
-    fig.savefig(dir + imgname + "_init.png")
+    # fig.savefig(image_dir + imgname + "_init.png")
+    run_data["initialization"] = fig
+    run_data["initialization_output"] = inverter.solutions[0]["Output"].squeeze()
     fig, ax = dataset.draw_graph(
         A=inverter.solutions[-1]["A"], X=inverter.solutions[-1]["X"]
     )
-    fig.savefig(dir + imgname + "_solution.png")
+    # fig.savefig(image_dir + imgname + "_solution.png")
+    run_data["solution"] = fig
+    run_data["solution_output"] = inverter.solutions[-1]["Output"].squeeze()
 
 print("Model Status:", m.Status)
 
 wandb.run.summary["Model Status"] = m.Status
+wandb.run.summary["Node Count"] = m.NodeCount
+wandb.run.summary["Open Node Count"] = m.OpenNodeCount
+wandb.run.summary["MIPGap"] = m.MIPGap
+
+save_file = f"solutions/{dataset_name}_{max_class}_{num_nodes}.pkl"
 
 if m.Status in [3, 4]:  # If the model is infeasible, see why
     inverter.computeIIS()
+
+end_time = time.time()
+run_data["runtime"] = end_time - start_time
+
+if args.log:
+    for key in wandb.run.summary.keys():
+        run_data[key] = wandb.run.summary[key]
+    del run_data["fig"]
+    for key in wandb.config.keys():
+        run_data[key] = wandb.config[key]
+    run_data_keys = list(run_data.keys())
+
+    ## Temporary Solution TODO: Remove non-picklable objects
+    for key in run_data_keys:
+        try:
+            pickle.dumps(run_data[key])
+        except:
+            pass
+
+    with open(f"results/all_info/{wandb.run.id}.pkl", "wb") as f:
+        pickle.dump(run_data, f)
