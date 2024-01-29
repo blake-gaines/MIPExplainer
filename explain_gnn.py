@@ -511,11 +511,6 @@ if args.log:
 
 print("Model Status:", m.Status)
 
-wandb.run.summary["Model Status"] = m.Status
-wandb.run.summary["Node Count"] = m.NodeCount
-wandb.run.summary["Open Node Count"] = m.OpenNodeCount
-wandb.run.summary["MIPGap"] = m.MIPGap
-
 save_file = f"solutions/{dataset_name}_{max_class}_{num_nodes}.pkl"
 
 if m.Status in [3, 4]:  # If the model is infeasible, see why
@@ -525,6 +520,11 @@ end_time = time.time()
 run_data["runtime"] = end_time - start_time
 
 if args.log:
+    wandb.run.summary["Model Status"] = m.Status
+    wandb.run.summary["Node Count"] = m.NodeCount
+    wandb.run.summary["Open Node Count"] = m.OpenNodeCount
+    wandb.run.summary["MIPGap"] = m.MIPGap
+
     for key in wandb.run.summary.keys():
         run_data[key] = wandb.run.summary[key]
     del run_data["fig"]
@@ -537,7 +537,7 @@ if args.log:
         try:
             pickle.dumps(run_data[key])
         except:
-            pass
+            del run_data[key]
 
     with open(f"results/all_info/{wandb.run.id}.pkl", "wb") as f:
         pickle.dump(run_data, f)
