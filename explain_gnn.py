@@ -539,5 +539,5 @@ if args.log:
         except:
             del run_data[key]
 
-    with open(f"results/all_info/{wandb.run.id}.pkl", "wb") as f:
+    with open(f"results/runs_{dataset_name}/{wandb.run.id}.pkl", "wb") as f:
         pickle.dump(run_data, f)
