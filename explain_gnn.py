@@ -482,7 +482,7 @@ m.read(args.param_file)
 # Run Optimization
 inverter.solve(
     callback,
-    TimeLimit=3600 * 6,
+    TimeLimit=3600 * 2,
 )
 
 # Save all solutions
@@ -539,5 +539,5 @@ if args.log:
         except:
             del run_data[key]
 
-    with open(f"results/runs_{dataset_name}/{wandb.run.id}.pkl", "wb") as f:
+    with open(f"results/new_runs_{dataset_name}/{wandb.run.id}.pkl", "wb") as f:
         pickle.dump(run_data, f)
