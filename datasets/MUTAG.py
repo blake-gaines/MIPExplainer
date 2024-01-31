@@ -25,8 +25,8 @@ class MUTAG_dataset(GraphDataset):
     }
 
     GRAPH_CLS = {
-        0: "nonmutagen",
-        1: "mutagen",
+        0: "Nonmutagen",
+        1: "Mutagen",
     }
 
     EDGE_CLS = {
