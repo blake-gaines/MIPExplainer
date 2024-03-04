@@ -137,9 +137,9 @@ class GraphDataset(Dataset):
             if hasattr(self, "NODE_CLS"):
                 labels = (
                     dict(zip(range(X.shape[0]), map(self.NODE_CLS.get, x_indices)))
-                    if label_dict
-                    else dict(zip(range(X.shape[0]), x_indices))
                 )
+            else:
+                labels = None
 
             if hasattr(self, "NODE_COLOR"):
                 node_color = list(
