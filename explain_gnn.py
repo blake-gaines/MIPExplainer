@@ -225,102 +225,102 @@ else:
 inverter.set_input_vars({"X": X, "A": A})
 inverter.set_tracked_vars({"X": X, "A": A})
 
-# Enforce canonical (maybe) representation
-# Only works for one-hot node features and assumes an undirected graph
-m.update()
-if X[0][0].vtype == GRB.BINARY:
-    # messages [i][j][k] is 1 if node i is a neighbor of node j and node i's feature k is 1
-    messages = m.addMVar((num_nodes, num_nodes, num_node_features), vtype=GRB.BINARY)
-    messages = m.addVars(
-        [
-            (i, j, k)
-            for i in range(num_nodes)
-            for j in range(num_nodes)
-            for k in range(num_node_features)
-        ],
-        vtype=GRB.BINARY,
-        name="initial_messages_constraint",
-    )
-    for i in range(num_nodes):
-        for j in range(num_nodes):
-            for k in range(num_node_features):
-                m.addGenConstrIndicator(
-                    messages[i, j, k],
-                    1,
-                    A[i, j] + X[i, k],
-                    GRB.EQUAL,
-                    2,
-                    name=f"initial_message_{i}_{j}_{k}",
-                )
+# # Enforce canonical (maybe) representation
+# # Only works for one-hot node features and assumes an undirected graph
+# m.update()
+# if X[0][0].vtype == GRB.BINARY:
+#     # messages [i][j][k] is 1 if node i is a neighbor of node j and node i's feature k is 1
+#     messages = m.addMVar((num_nodes, num_nodes, num_node_features), vtype=GRB.BINARY)
+#     messages = m.addVars(
+#         [
+#             (i, j, k)
+#             for i in range(num_nodes)
+#             for j in range(num_nodes)
+#             for k in range(num_node_features)
+#         ],
+#         vtype=GRB.BINARY,
+#         name="initial_messages_constraint",
+#     )
+#     for i in range(num_nodes):
+#         for j in range(num_nodes):
+#             for k in range(num_node_features):
+#                 m.addGenConstrIndicator(
+#                     messages[i, j, k],
+#                     1,
+#                     A[i, j] + X[i, k],
+#                     GRB.EQUAL,
+#                     2,
+#                     name=f"initial_message_{i}_{j}_{k}",
+#                 )
 
-    # neighborhoods_match[i,j,k] is a binary decision variable, constrained to 1 if node i and node j have the same number of neighbors with feature k equal to 1, 0 otherwise
-    neighborhoods_match = m.addVars(
-        [
-            (i, j, k)
-            for i in range(num_nodes - 1)
-            for j in range(i + 1, num_nodes)
-            for k in range(num_node_features)
-        ],
-        vtype=GRB.BINARY,
-        name="neighborhoods_match",
-    )
-    # obeys_orderings is only 1 if two nodes have the correct partial ordering based on their node features
-    # If they have the same neighborhood, then the node with the smaller features lexicographically should come first in the ordering
-    obeys_orderings = m.addVars(
-        [(i, j) for i in range(num_nodes - 1) for j in range(i + 1, num_nodes)],
-        vtype=GRB.BINARY,
-        name="obeys_orderings",
-    )
-    for i in range(num_nodes - 1):
-        for j in range(i + 1, num_nodes):
-            for k in range(num_node_features):
-                # Constrain the neighborhoods_match variables to the correct values
-                i_neighborhood_ks = messages.select(i, "*", k)
-                i_neighborhood_ks.pop(i)
-                j_neighborhood_ks = messages.select(j, "*", k)
-                j_neighborhood_ks.pop(j)
-                m.addGenConstrIndicator(
-                    neighborhoods_match[i, j, k],
-                    1,
-                    sum(i_neighborhood_ks) - sum(j_neighborhood_ks),
-                    GRB.EQUAL,
-                    0,
-                    name=f"neighborhood_match_constraint_{i}_{j}_{k}",
-                )
+#     # neighborhoods_match[i,j,k] is a binary decision variable, constrained to 1 if node i and node j have the same number of neighbors with feature k equal to 1, 0 otherwise
+#     neighborhoods_match = m.addVars(
+#         [
+#             (i, j, k)
+#             for i in range(num_nodes - 1)
+#             for j in range(i + 1, num_nodes)
+#             for k in range(num_node_features)
+#         ],
+#         vtype=GRB.BINARY,
+#         name="neighborhoods_match",
+#     )
+#     # obeys_orderings is only 1 if two nodes have the correct partial ordering based on their node features
+#     # If they have the same neighborhood, then the node with the smaller features lexicographically should come first in the ordering
+#     obeys_orderings = m.addVars(
+#         [(i, j) for i in range(num_nodes - 1) for j in range(i + 1, num_nodes)],
+#         vtype=GRB.BINARY,
+#         name="obeys_orderings",
+#     )
+#     for i in range(num_nodes - 1):
+#         for j in range(i + 1, num_nodes):
+#             for k in range(num_node_features):
+#                 # Constrain the neighborhoods_match variables to the correct values
+#                 i_neighborhood_ks = messages.select(i, "*", k)
+#                 i_neighborhood_ks.pop(i)
+#                 j_neighborhood_ks = messages.select(j, "*", k)
+#                 j_neighborhood_ks.pop(j)
+#                 m.addGenConstrIndicator(
+#                     neighborhoods_match[i, j, k],
+#                     1,
+#                     sum(i_neighborhood_ks) - sum(j_neighborhood_ks),
+#                     GRB.EQUAL,
+#                     0,
+#                     name=f"neighborhood_match_constraint_{i}_{j}_{k}",
+#                 )
 
-            # Constrain the obeys_orderings variables to the correct values
-            # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
-            m.addGenConstrIndicator(
-                obeys_orderings[i, j],
-                1,
-                sum(
-                    sum(X[i][: k + 1]) - sum(X[j][k:]) for k in range(num_node_features)
-                ),
-                GRB.GREATER_EQUAL,
-                0,
-                name=f"obeys_ordering_constraint_{i}_{j}",
-            )
+#             # Constrain the obeys_orderings variables to the correct values
+#             # For each k in the number of features, the sum of the features of node i before or at k equal the sum of the features of node j at or after k
+#             m.addGenConstrIndicator(
+#                 obeys_orderings[i, j],
+#                 1,
+#                 sum(
+#                     sum(X[i][: k + 1]) - sum(X[j][k:]) for k in range(num_node_features)
+#                 ),
+#                 GRB.GREATER_EQUAL,
+#                 0,
+#                 name=f"obeys_ordering_constraint_{i}_{j}",
+#             )
 
-            # If the neighborhoods match, the ordering must be obeyed
-            m.addConstr(
-                sum(neighborhoods_match.select(i, j, "*")) - obeys_orderings[i, j]
-                <= num_node_features - 1,
-                name=f"nb_ordering_{i}_{j}",
-            )
+#             # If the neighborhoods match, the ordering must be obeyed
+#             m.addConstr(
+#                 sum(neighborhoods_match.select(i, j, "*")) - obeys_orderings[i, j]
+#                 <= num_node_features - 1,
+#                 name=f"nb_ordering_{i}_{j}",
+#             )
 
-    ## The first node will have the highest degree and come first lexicographically among nodes with the highest degree
-    weighted_feature_sums = A @ (
-        X @ np.linspace(1, num_node_features, num=num_node_features)
-    )
-    for j in range(1, num_nodes):
-        # TODO: Fix for directed graphs, integer features
-        m.addConstr(
-            sum(A[0]) * num_node_features * num_nodes + sum(weighted_feature_sums[0])
-            <= sum(A[j]) * num_node_features * num_nodes
-            + sum(weighted_feature_sums[j]),
-            name=f"node_0_smallest_{j}",
-        )
-    m.update()
+#     ## The first node will have the highest degree and come first lexicographically among nodes with the highest degree
+#     weighted_feature_sums = A @ (
+#         X @ np.linspace(1, num_node_features, num=num_node_features)
+#     )
+#     for j in range(1, num_nodes):
+#         # TODO: Fix for directed graphs, integer features
+#         m.addConstr(
+#             sum(A[0]) * num_node_features * num_nodes + sum(weighted_feature_sums[0])
+#             <= sum(A[j]) * num_node_features * num_nodes
+#             + sum(weighted_feature_sums[j]),
+#             name=f"node_0_smallest_{j}",
+#         )
+#     m.update()
 
 ## Build a MIQCP for the trained neural network
 ## For each layer, create and constrain decision variables to represent the output
@@ -482,7 +482,7 @@ m.read(args.param_file)
 # Run Optimization
 inverter.solve(
     callback,
-    TimeLimit=3600 * 2,
+    TimeLimit=round(3600 * 0.5),
 )
 
 # Save all solutions
@@ -539,5 +539,7 @@ if args.log:
         except:
             del run_data[key]
 
+    if not os.path.isdir(f"results/new_runs_{dataset_name}"):
+        os.mkdir(f"results/new_runs_{dataset_name}")
     with open(f"results/new_runs_{dataset_name}/{wandb.run.id}.pkl", "wb") as f:
         pickle.dump(run_data, f)
