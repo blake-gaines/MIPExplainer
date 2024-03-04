@@ -15,3 +15,4 @@ wandb/
 *.log
 *.lp
 *.pt
+notebooks/
