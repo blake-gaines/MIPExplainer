@@ -134,8 +134,8 @@ def add_torch_maxpool2d_constraint(model, layer, X, name=None):
 def add_torch_conv2d_constraint(model, layer, X, name=None):
     model.update()
 
-    weight = layer.weight.detach().numpy()
-    bias_vector = layer.bias.detach().numpy()
+    weight = layer.weight.cpu().detach().numpy()
+    bias_vector = layer.bias.cpu().detach().numpy()
 
     N = X.shape[0]
     Cout = weight.shape[0]
@@ -466,8 +466,8 @@ def global_mean_pool(model, X, name=None, **kwargs):
 
 def torch_fc_constraint(model, X, layer, name=None, max_output=None, **kwargs):
     # Encodes a PyTorch Linear layer based on the input X
-    weight = layer.get_parameter("weight").detach().numpy()
-    bias = layer.get_parameter("bias").detach().numpy()
+    weight = layer.get_parameter("weight").cpu().detach().numpy()
+    bias = layer.get_parameter("bias").cpu().detach().numpy()
     if max_output is not None:
         weight = weight[max_output][np.newaxis, :]
         bias = np.atleast_2d(bias[max_output])
@@ -478,13 +478,13 @@ def torch_fc_constraint(model, X, layer, name=None, max_output=None, **kwargs):
 def torch_sage_constraint(model, A, X, layer, name=None, **kwargs):
     # Encodes a PyTorch-Geometric GraphSAGE convolutional layer object based on the input X and A
     # TODO: Cleanup
-    lin_r_weight = layer.get_parameter("lin_r.weight").detach().numpy()
-    lin_l_weight = layer.get_parameter("lin_l.weight").detach().numpy()
-    lin_l_bias = layer.get_parameter("lin_l.bias").detach().numpy()
+    lin_r_weight = layer.get_parameter("lin_r.weight").cpu().detach().numpy()
+    lin_l_weight = layer.get_parameter("lin_l.weight").cpu().detach().numpy()
+    lin_l_bias = layer.get_parameter("lin_l.bias").cpu().detach().numpy()
     lin_weight, lin_bias = None, None
     if layer.project and hasattr(layer, "lin"):
-        lin_weight = layer.get_parameter("lin.weight").detach().numpy()
-        lin_bias = layer.get_parameter("lin.bias").detach().numpy()
+        lin_weight = layer.get_parameter("lin.weight").cpu().detach().numpy()
+        lin_bias = layer.get_parameter("lin.bias").cpu().detach().numpy()
     return add_sage_constraint(
         model,
         A,

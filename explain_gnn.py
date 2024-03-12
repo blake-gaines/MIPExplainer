@@ -84,7 +84,8 @@ def canonicalize_graph(graph):
 
 
 # Load the model
-nn = torch.load(model_path, fix_imports=True)
+nn = torch.load(model_path, fix_imports=True, map_location=device)
+nn.device = device
 nn.eval()
 nn.to(torch.float64)
 
