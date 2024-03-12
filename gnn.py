@@ -40,8 +40,11 @@ class GNN(torch.nn.Module):
         lin_features,
         global_aggr="mean",
         conv_aggr="mean",
+        device="cpu"
     ):
         super(GNN, self).__init__()
+
+        self.device = device
 
         self.layers = ModuleDict()
 
@@ -80,50 +83,53 @@ class GNN(torch.nn.Module):
 
     def forwardXA(self, X, A):
         # Same as forward, but takes node features and adjacency matrix instead of a Data object
-        X = torch.Tensor(X).to(next(self.parameters()).dtype)
+        X = torch.Tensor(X)
         A = torch.Tensor(A)
-        edge_index, edge_weight = dense_to_sparse(A)
-        data = Data(x=X, edge_index=edge_index, edge_weight=edge_weight)
+        edge_index, edge_weight = dense_to_sparse(A.to(next(self.parameters()).device))
+        data = Data(x=X.to(self.device, next(self.parameters()).dtype), edge_index=edge_index, edge_weight=edge_weight)
         return self.forward(data)
 
     def forward(self, data):
         data = self.fix_data(data)
-        x = data.x
+        x = data.x.to(self.device, next(self.parameters()).dtype)
+        edge_index = data.edge_index.to(self.device)
         for layer in self.layers.values():
             if isinstance(layer, SAGEConv):
-                x = layer(x, data.edge_index)
+                x = layer(x, edge_index)
             elif isinstance(layer, Aggregation):
-                x = layer(x, data.batch)
+                x = layer(x, data.batch.to(self.device))
             else:
                 x = layer(x)
-        return x
+        return x.cpu()
 
     def get_all_layer_outputs(self, data):
         data = self.fix_data(data)
-        outputs = [("Input", data.x)]
+        outputs = [("Input", data.x.to(self.device, next(self.parameters()).dtype))]
+        edge_index = data.edge_index.to(self.device)
         for name, layer in self.layers.items():
             if isinstance(layer, SAGEConv):
-                outputs.append((name, layer(outputs[-1][1], data.edge_index)))
+                outputs.append((name, layer(outputs[-1][1], edge_index)))
             elif isinstance(layer, Aggregation):
-                outputs.append((name, layer(outputs[-1][1], data.batch)))
+                outputs.append((name, layer(outputs[-1][1], data.batch.to(self.device))))
             else:
                 outputs.append((name, layer(outputs[-1][1])))
-        return outputs
+        return [(k, v.cpu()) for k,v in outputs]
 
     def get_layer_output(self, data, layer_name):
         data = self.fix_data(data)
-        x = data.x
+        x = data.x.to(self.device, next(self.parameters()).dtype)
+        edge_index = data.edge_index.to(self.device)
         if layer_name not in self.layers:
             raise ValueError(f"Network has no layer with name {layer_name}")
         for name, layer in self.layers.items():
             if isinstance(layer, SAGEConv):
-                x = layer(x, data.edge_index)
+                x = layer(x, edge_index)
             elif isinstance(layer, Aggregation):
-                x = layer(x, data.batch)
+                x = layer(x, data.batch.to(self.device))
             else:
                 x = layer(x)
             if name == layer_name:
-                return x
+                return x.cpu()
 
 
 def train(model, train_loader, optimizer, criterion):
