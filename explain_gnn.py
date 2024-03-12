@@ -323,22 +323,87 @@ inverter.set_tracked_vars({"X": X, "A": A})
 #             name=f"node_0_smallest_{j}",
 #         )
 #     m.update()
+canonicalize_graph(init_graph)
+invert_utils.order_onehot_features(inverter.m, A, X)
+
 
 ## Build a MIQCP for the trained neural network
 ## For each layer, create and constrain decision variables to represent the output
-previous_layer_output = X
-for name, layer in nn.layers.items():
-    previous_layer_output = invert_utils.invert_torch_layer(
-        inverter.model,
-        layer,
-        name=name,
-        X=previous_layer_output,
-        A=A,
-    )
-    inverter.output_vars[name] = previous_layer_output
+debug_start = False
+if debug_start:
+    previous_layer_output = X
+    X.start = init_graph.x.detach().numpy()
+    A.start = to_dense_adj(init_graph.edge_index).squeeze().detach().numpy()
+    all_layer_outputs = dict(nn.get_all_layer_outputs(init_graph))
+    fixing_constraints = [inverter.model.addConstr(X == init_graph.x.detach().numpy())]
+    old_numvars = 0
+    old_numconstrs = 0
+    for name, layer in nn.layers.items():
+        inverter.model.update()
+        print("Encoding Layer:", name)
+        print("Previous layer lower bound:", previous_layer_output.getAttr("lb")[0])
+        previous_layer_output = invert_utils.invert_torch_layer(
+            inverter.model,
+            layer,
+            name=name,
+            X=previous_layer_output,
+            A=A,
+        )
+        inverter.output_vars[name] = previous_layer_output
+        assert inverter.output_vars[name].shape == all_layer_outputs[name].shape
+        inverter.output_vars[name].Start = all_layer_outputs[name].detach().numpy()
+        fixing_constraints.append(inverter.model.addConstr(inverter.output_vars[name] == all_layer_outputs[name].detach().numpy(), name=f"fix_{name}"))
+        inverter.model.update()
+        numvars = inverter.model.NumVars
+        numconstrs = inverter.model.NumConstrs
+        print("Number of variables:", numvars, "Number of constraints:", numconstrs, "Old Number of variables:", old_numvars, "Old Number of constraints:", old_numconstrs)
+        inverter.model.optimize()
+        if not inverter.model.Status == GRB.OPTIMAL:
+            print("============ PROBLEM WITH LAYER:", name, "=================")
+            print("Fixed:", set(v.varName.split("[")[0] for v in inverter.model.getVars()[:old_numvars]))
+            print("Fixed:", set(c.ConstrName.split("[")[0] for c in inverter.model.getConstrs()[:old_numconstrs]))
+            print("Using:", set(v.varName.split("[")[0] for v in inverter.model.getVars()[old_numvars:]))
+            print("Using:", set(c.ConstrName.split("[")[0] for c in inverter.model.getConstrs()[old_numconstrs:]))
+            lbpen = [1.0]*(numvars-old_numvars)
+            ubpen = [1.0]*(numvars-old_numvars)
+            rhspen = [1.0]*(numconstrs-old_numconstrs)
 
-invert_utils.order_onehot_features(inverter.m, A, X)
-canonicalize_graph(init_graph)
+            print("feasRelax Result:", inverter.model.feasRelax(0, False, inverter.model.getVars()[old_numvars:], lbpen, ubpen, inverter.model.getConstrs()[old_numconstrs:], rhspen))
+            inverter.model.optimize()
+            if inverter.model.Status == GRB.OPTIMAL:
+                print('\nSlack values:')
+                slacks = inverter.model.getVars()[numvars:]
+                for sv in slacks:
+                    if sv.X > 1e-9:
+                        print('%s = %g' % (sv.VarName, sv.X))
+            else:
+                inverter.computeIIS()
+
+            x = all_layer_outputs["Conv_0_Relu"].detach().numpy()
+            a = to_dense_adj(init_graph.edge_index).squeeze().detach().numpy()
+            agf = a @ x
+            lin_l_weight = layer.lin_l.weight.cpu().detach().numpy()
+            lin_r_weight = layer.lin_r.weight.cpu().detach().numpy()
+            lin_l_bias = layer.lin_l.bias.cpu().detach().numpy()
+            res = (x@lin_r_weight.T)+(agf@lin_l_weight.T)+np.expand_dims(lin_l_bias, 0)
+            real = all_layer_outputs["Conv_1"].detach().numpy()
+            breakpoint()
+            import sys; sys.exit()
+        old_numvars = numvars
+        old_numconstrs = numconstrs
+
+    inverter.model.remove(fixing_constraints)
+else:
+    previous_layer_output = X
+    for name, layer in nn.layers.items():
+        previous_layer_output = invert_utils.invert_torch_layer(
+            inverter.model,
+            layer,
+            name=name,
+            X=previous_layer_output,
+            A=A,
+        )
+        inverter.output_vars[name] = previous_layer_output
 
 ## Create decision variables to represent (unweighted) regularizer terms based on embedding similarity/distance
 ## These can also be used in constraints!!!
