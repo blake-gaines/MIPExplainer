@@ -324,7 +324,7 @@ inverter.set_tracked_vars({"X": X, "A": A})
 #         )
 #     m.update()
 canonicalize_graph(init_graph)
-invert_utils.order_onehot_features(inverter.m, A, X)
+# invert_utils.order_onehot_features(inverter.m, A, X) # TODO: See if this works better for MUTAG
 
 
 ## Build a MIQCP for the trained neural network
