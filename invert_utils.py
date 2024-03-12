@@ -266,13 +266,17 @@ def add_gcn_constraint(model, A, X, W, b, name=None):  # Unnormalized Adjacency 
 def add_self_loops(model, A):
     # Ensure every node is connected to itself
     for i in range(A.shape[0]):
-        model.addConstr(A[i][i] == 1, name=f"self_loops_node_{i}")
+        # model.addConstr(A[i][i] == 1, name=f"self_loops_node_{i}")
+        A[i][i].setAttr("lb", 1)
+        A[i][i].setAttr("ub", 1)
 
 
 def remove_self_loops(model, A):
     # Ensure no nodes are connected to themselves
     for i in range(A.shape[0]):
-        model.addConstr(A[i][i] == 0, name=f"no_self_loops_node_{i}")
+        # model.addConstr(A[i][i] == 0, name=f"no_self_loops_node_{i}")
+        A[i][i].setAttr("lb", 0)
+        A[i][i].setAttr("ub", 0)
 
 
 def force_undirected(model, A):
@@ -374,22 +378,18 @@ def add_sage_constraint(
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
         aggregated_features.setAttr(
-            "lb", (np.ones(A.shape) @ X.getAttr("lb").clip(max=0)) / X.shape[0]
+            "lb", (A.getAttr("ub") @ X.getAttr("lb").clip(max=0)) / X.shape[0]
         )
         aggregated_features.setAttr(
-            "ub", (np.ones(A.shape) @ X.getAttr("ub").clip(min=0)) / X.shape[0]
+            "ub", (A.getAttr("ub") @ X.getAttr("ub").clip(min=0)) / X.shape[0]
         )
         model.addConstr(
             aggregated_features * gp.quicksum(A)[:, np.newaxis] == A @ X,
             name=f"{name}_averages_constraint" if name else None,
         )  # may need to transpose
     elif aggr == "sum":
-        aggregated_features.setAttr(
-            "lb", np.ones(A.shape) @ X.getAttr("lb").clip(max=0)
-        )
-        aggregated_features.setAttr(
-            "ub", np.ones(A.shape) @ X.getAttr("ub").clip(min=0)
-        )
+        aggregated_features.setAttr("lb", A.getAttr("ub") @ X.getAttr("lb").clip(max=0))
+        aggregated_features.setAttr("ub", A.getAttr("ub") @ X.getAttr("ub").clip(min=0))
 
         model.addConstr(
             aggregated_features == A @ X,
