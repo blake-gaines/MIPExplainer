@@ -235,14 +235,14 @@ class Inverter:
             # Check initializations for all variables are geq the lower bounds
             if not np.less_equal(var.getAttr("lb"), output + 1e-8).all():
                 print(
-                    f'ERROR: Layer Output Lower than Lower Bounds\nLayer {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}\nOutputs:\n{output[np.greater(var.getAttr("lb"), output)]}',
+                    f'\nERROR: Layer Output Lower than Lower Bounds\nLayer: {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}\nOutputs:\n{output[np.greater(var.getAttr("lb"), output)]}',
                 )
                 raise AssertionError(f"{layer_name} Lower Bound Violation")
 
             # Check initializations for all variables are leq the upper bounds
-            if not np.greater_equal(var.getAttr("ub") + 1e-8, output).all():
+            if not np.greater_equal(var.getAttr("ub"), output - 1e-8).all():
                 print(
-                    f'ERROR: Layer Output Greater than Upper Bounds\nLayer {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.less(var.getAttr("ub"), output)]}\nOutputs:\n{output[np.less(var.getAttr("ub"), output)]}',
+                    f'\nERROR: Layer Output Greater than Upper Bounds\nLayer: {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.less(var.getAttr("ub"), output)]}\nOutputs:\n{output[np.less(var.getAttr("ub"), output)]}',
                 )
                 raise AssertionError(f"{layer_name} Upper Bound Violation")
 
