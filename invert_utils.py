@@ -325,7 +325,7 @@ def add_relu_constraint(model, X, name=None, **kwargs):
     print("X UB < 0 COUNT:", np.less(X.getAttr("ub"), 0).sum())
     ts = model.addMVar(
         X.shape,
-        lb=X.getAttr("lb").clip(min=0),
+        lb=0, # TODO: Why does making this X.getAttr("lb").clip(min=0) cause problems?
         ub=X.getAttr("ub").clip(min=0),
         name=f"{name}_ts",
     )
@@ -406,11 +406,11 @@ def add_sage_constraint(
     second_lower_bounds, second_upper_bounds = get_matmul_bounds(
         aggregated_features, lin_l_weight.T
     )
+
     # If node features are categorical, we can tighten the bounds on the output.
-    # if name == "Conv_0" and aggr=="mean" and model.getConstrByName("categorical_features[0]") is not None:
+    # if name == "Conv_0" and aggr=="sum" and model.getConstrByName("categorical_features[0]") is not None:
     #     print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
-    #     first_lower_bounds = np.maximum(first_lower_bounds, np.repeat(lin_r_weight.min(axis=1)[np.newaxis, :], X.shape[0], axis=0))
-    #     first_upper_bounds = np.minimum(first_upper_bounds, np.repeat(lin_r_weight.max(axis=1)[np.newaxis, :], X.shape[0], axis=0))
+
     ts_lower_bounds = (
         first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0)
     )
