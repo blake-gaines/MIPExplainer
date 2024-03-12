@@ -424,6 +424,11 @@ def add_sage_constraint(
         name=f"{name}_t" if name else None,
     )
 
+    assert ts_lower_bounds.shape == first_lower_bounds.shape
+    assert first_lower_bounds.shape == (X @ lin_r_weight.T).shape
+    assert second_lower_bounds.shape == (aggregated_features @ lin_l_weight.T).shape
+    assert first_lower_bounds.shape == second_lower_bounds.shape
+
     # Constrain outputs to correct values
     model.addConstr(
         ts
