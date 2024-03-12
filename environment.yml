@@ -6,7 +6,7 @@ channels:
   - pyg
   - pytorch
 dependencies:
-  - python=3.10
+  - python>=3.10
   - pandas
   - gurobi
   - plotly
@@ -16,11 +16,14 @@ dependencies:
   - scipy
   - pyg::pyg
   - ipywidgets
-  - pytorch::pytorch >= 2.0.0
   - matplotlib
   - wandb
-  - pytorch::torchvision
   - nbformat
+  - pytorch >= 2.2
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
   - pip:
-    - torchsummary
+    - kaleido
+    - XlsxWriter
 prefix: /opt/anaconda3/envs/InvertGNNs
