@@ -153,7 +153,7 @@ class Inverter:
                     self.output_vars[last_output_key]
                 )
                 # breakpoint()
-                divergence = np.abs(nn_output-output_var_value).max()
+                divergence = np.abs(nn_output - output_var_value).max()
                 if not np.allclose(nn_output, output_var_value):
                     "uh oh :("
                     warnings.warn(
@@ -233,21 +233,18 @@ class Inverter:
             # Check variables and ouputs have the same shape
             assert var.shape == output.shape, (layer_name, var.shape, output.shape)
             # Check initializations for all variables are geq the lower bounds
-            assert np.less_equal(var.getAttr("lb"), output + 1e-8).all(), (
-                layer_name,
-                f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}',
-                np.greater(var.getAttr("lb"), output).sum(),
-                var.getAttr("lb")[np.greater(var.getAttr("lb"), output)],
-                output[np.greater(var.getAttr("lb"), output)],
-            )
+            if not np.less_equal(var.getAttr("lb"), output + 1e-8).all():
+                print(
+                    f'ERROR: Layer Output Lower than Lower Bounds\nLayer {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}\nOutputs:\n{output[np.greater(var.getAttr("lb"), output)]}',
+                )
+                raise AssertionError(f"{layer_name} Lower Bound Violation")
+
             # Check initializations for all variables are leq the upper bounds
-            assert np.greater_equal(var.getAttr("ub") + 1e-8, output).all(), (
-                layer_name,
-                var.shape,
-                np.less(var.getAttr("ub"), output).sum(),
-                var.getAttr("ub")[np.less(var.getAttr("ub"), output)],
-                output[np.less(var.getAttr("ub"), output)],
-            )
+            if not np.greater_equal(var.getAttr("ub") + 1e-8, output).all():
+                print(
+                    f'ERROR: Layer Output Greater than Upper Bounds\nLayer {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.less(var.getAttr("ub"), output)]}\nOutputs:\n{output[np.less(var.getAttr("ub"), output)]}',
+                )
+                raise AssertionError(f"{layer_name} Upper Bound Violation")
 
             var.Start = output
 
