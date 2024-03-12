@@ -153,10 +153,11 @@ class Inverter:
                     self.output_vars[last_output_key]
                 )
                 # breakpoint()
+                divergence = np.abs(nn_output-output_var_value).max()
                 if not np.allclose(nn_output, output_var_value):
                     "uh oh :("
                     warnings.warn(
-                        f"Model outputs diverge: max difference is {np.abs(nn_output-output_var_value).max():.3e}",
+                        f"Model outputs diverge: max difference is {divergence:.3e}",
                         category=RuntimeWarning,
                     )
 
@@ -195,6 +196,7 @@ class Inverter:
                         "Output": nn_output,
                         "Objective Value": self.m.cbGet(GRB.Callback.MIPSOL_OBJ),
                         "Upper Bound": self.m.cbGet(GRB.Callback.MIPSOL_OBJBND),
+                        "Divergence": divergence,
                     }
                 )
                 self.solutions.append(solution)
