@@ -441,15 +441,17 @@ def callback(model, where):
 
         # with open(output_file, "wb") as f:
         #     pickle.dump(inverter.solutions, f)
-    elif where == GRB.Callback.MIP or where == GRB.Callback.MIPSOL:
+    elif where == GRB.Callback.MIP:
         # Access MIP information when upper bound is updated
+        runtime = model.cbGet(GRB.Callback.RUNTIME)
+        if mip_information and runtime - mip_information[-1]["Runtime"] < 1:
+            return
         obj_bound = model.cbGet(GRB.Callback.MIP_OBJBST)
         best_bound = model.cbGet(GRB.Callback.MIP_OBJBND)
         node_count = model.cbGet(GRB.Callback.MIP_NODCNT)
         explored_node_count = model.cbGet(GRB.Callback.MIP_NODCNT)
         unexplored_node_count = model.cbGet(GRB.Callback.MIP_NODLFT)
         cut_count = model.cbGet(GRB.Callback.MIP_CUTCNT)
-        runtime = model.cbGet(GRB.Callback.RUNTIME)
         work_units = model.cbGet(GRB.Callback.WORK)
 
         # Save the information to a dictionary
@@ -464,7 +466,6 @@ def callback(model, where):
             "WorkUnits": work_units,
         }
 
-        # Append the dictionary to the list
         mip_information.append(mip_info)
 
 
