@@ -221,6 +221,8 @@ elif dataset_name in ["Is_Acyclic", "Shapes", "Shapes_Clean"]:
 elif dataset_name in ["Shapes_Ones", "Is_Acyclic_Ones"]:
     X = m.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name="X")
     m.addConstr(X == 1, name="features_are_ones")
+    X.setAttr("lb", 1)
+    X.setAttr("ub", 1)
 else:
     raise ValueError(f"Unknown Decision Variables for {dataset_name}")
 
@@ -352,30 +354,79 @@ if debug_start:
         inverter.output_vars[name] = previous_layer_output
         assert inverter.output_vars[name].shape == all_layer_outputs[name].shape
         inverter.output_vars[name].Start = all_layer_outputs[name].detach().numpy()
-        fixing_constraints.append(inverter.model.addConstr(inverter.output_vars[name] == all_layer_outputs[name].detach().numpy(), name=f"fix_{name}"))
+        fixing_constraints.append(
+            inverter.model.addConstr(
+                inverter.output_vars[name] == all_layer_outputs[name].detach().numpy(),
+                name=f"fix_{name}",
+            )
+        )
         inverter.model.update()
         numvars = inverter.model.NumVars
         numconstrs = inverter.model.NumConstrs
-        print("Number of variables:", numvars, "Number of constraints:", numconstrs, "Old Number of variables:", old_numvars, "Old Number of constraints:", old_numconstrs)
+        print(
+            "Number of variables:",
+            numvars,
+            "Number of constraints:",
+            numconstrs,
+            "Old Number of variables:",
+            old_numvars,
+            "Old Number of constraints:",
+            old_numconstrs,
+        )
         inverter.model.optimize()
         if not inverter.model.Status == GRB.OPTIMAL:
             print("============ PROBLEM WITH LAYER:", name, "=================")
-            print("Fixed:", set(v.varName.split("[")[0] for v in inverter.model.getVars()[:old_numvars]))
-            print("Fixed:", set(c.ConstrName.split("[")[0] for c in inverter.model.getConstrs()[:old_numconstrs]))
-            print("Using:", set(v.varName.split("[")[0] for v in inverter.model.getVars()[old_numvars:]))
-            print("Using:", set(c.ConstrName.split("[")[0] for c in inverter.model.getConstrs()[old_numconstrs:]))
-            lbpen = [1.0]*(numvars-old_numvars)
-            ubpen = [1.0]*(numvars-old_numvars)
-            rhspen = [1.0]*(numconstrs-old_numconstrs)
+            print(
+                "Fixed:",
+                set(
+                    v.varName.split("[")[0]
+                    for v in inverter.model.getVars()[:old_numvars]
+                ),
+            )
+            print(
+                "Fixed:",
+                set(
+                    c.ConstrName.split("[")[0]
+                    for c in inverter.model.getConstrs()[:old_numconstrs]
+                ),
+            )
+            print(
+                "Using:",
+                set(
+                    v.varName.split("[")[0]
+                    for v in inverter.model.getVars()[old_numvars:]
+                ),
+            )
+            print(
+                "Using:",
+                set(
+                    c.ConstrName.split("[")[0]
+                    for c in inverter.model.getConstrs()[old_numconstrs:]
+                ),
+            )
+            lbpen = [1.0] * (numvars - old_numvars)
+            ubpen = [1.0] * (numvars - old_numvars)
+            rhspen = [1.0] * (numconstrs - old_numconstrs)
 
-            print("feasRelax Result:", inverter.model.feasRelax(0, False, inverter.model.getVars()[old_numvars:], lbpen, ubpen, inverter.model.getConstrs()[old_numconstrs:], rhspen))
+            print(
+                "feasRelax Result:",
+                inverter.model.feasRelax(
+                    0,
+                    False,
+                    inverter.model.getVars()[old_numvars:],
+                    lbpen,
+                    ubpen,
+                    inverter.model.getConstrs()[old_numconstrs:],
+                    rhspen,
+                ),
+            )
             inverter.model.optimize()
             if inverter.model.Status == GRB.OPTIMAL:
-                print('\nSlack values:')
+                print("\nSlack values:")
                 slacks = inverter.model.getVars()[numvars:]
                 for sv in slacks:
                     if sv.X > 1e-9:
-                        print('%s = %g' % (sv.VarName, sv.X))
+                        print("%s = %g" % (sv.VarName, sv.X))
             else:
                 inverter.computeIIS()
 
@@ -385,10 +436,16 @@ if debug_start:
             lin_l_weight = layer.lin_l.weight.cpu().detach().numpy()
             lin_r_weight = layer.lin_r.weight.cpu().detach().numpy()
             lin_l_bias = layer.lin_l.bias.cpu().detach().numpy()
-            res = (x@lin_r_weight.T)+(agf@lin_l_weight.T)+np.expand_dims(lin_l_bias, 0)
+            res = (
+                (x @ lin_r_weight.T)
+                + (agf @ lin_l_weight.T)
+                + np.expand_dims(lin_l_bias, 0)
+            )
             real = all_layer_outputs["Conv_1"].detach().numpy()
             breakpoint()
-            import sys; sys.exit()
+            import sys
+
+            sys.exit()
         old_numvars = numvars
         old_numconstrs = numconstrs
 
@@ -461,11 +518,8 @@ other_outputs_max = m.addVar(
 )
 m.addGenConstrMax(other_outputs_max, other_outputs_vars, name="max_of_other_outputs")
 
-max_output_var = (
-    inverter.output_vars["Output"][0]
-    if args.trim_unneeded_outputs
-    else inverter.output_vars["Output"][0, max_class]
-)
+max_output_var = inverter.output_vars["Output"][0, max_class]
+
 ## MIQCP objective function
 inverter.add_objective_term(ObjectiveTerm("Target Class Output", max_output_var))
 inverter.add_objective_term(
@@ -550,7 +604,7 @@ m.read(args.param_file)
 # Run Optimization
 inverter.solve(
     callback,
-    TimeLimit=round(3600 * 0.5),
+    TimeLimit=round(3600 * 2),
 )
 
 # Save all solutions
@@ -607,7 +661,7 @@ if args.log:
         except:
             del run_data[key]
 
-    if not os.path.isdir(f"results/new_runs_{dataset_name}"):
-        os.mkdir(f"results/new_runs_{dataset_name}")
-    with open(f"results/new_runs_{dataset_name}/{wandb.run.id}.pkl", "wb") as f:
+    if not os.path.isdir(f"results/runs_{dataset_name}"):
+        os.mkdir(f"results/runs_{dataset_name}")
+    with open(f"results/runs_{dataset_name}/{wandb.run.id}.pkl", "wb") as f:
         pickle.dump(run_data, f)
