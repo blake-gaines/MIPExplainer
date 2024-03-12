@@ -231,7 +231,7 @@ class Inverter:
             # Check variables and ouputs have the same shape
             assert var.shape == output.shape, (layer_name, var.shape, output.shape)
             # Check initializations for all variables are geq the lower bounds
-            assert np.less_equal(var.getAttr("lb"), output + 1e-5).all(), (
+            assert np.less_equal(var.getAttr("lb"), output + 1e-8).all(), (
                 layer_name,
                 f'Lower Bounds: {var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}, Outputs: {output[np.greater(var.getAttr("lb"), output)]}',
                 np.greater(var.getAttr("lb"), output).sum(),
@@ -239,7 +239,7 @@ class Inverter:
                 output[np.greater(var.getAttr("lb"), output)],
             )
             # Check initializations for all variables are leq the upper bounds
-            assert np.greater_equal(var.getAttr("ub") + 1e-5, output).all(), (
+            assert np.greater_equal(var.getAttr("ub") + 1e-8, output).all(), (
                 layer_name,
                 var.shape,
                 np.less(var.getAttr("ub"), output).sum(),
