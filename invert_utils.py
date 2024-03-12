@@ -323,9 +323,10 @@ def add_relu_constraint(model, X, name=None, **kwargs):
     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
     model.update()
     print("X UB < 0 COUNT:", np.less(X.getAttr("ub"), 0).sum())
+    print("X LB > 0 COUNT:", np.greater(X.getAttr("lb"), 0).sum())
     ts = model.addMVar(
         X.shape,
-        lb=0, # TODO: Why does making this X.getAttr("lb").clip(min=0) cause problems?
+        lb=X.getAttr("lb").clip(min=0),
         ub=X.getAttr("ub").clip(min=0),
         name=f"{name}_ts",
     )
@@ -373,27 +374,23 @@ def add_sage_constraint(
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
         aggregated_features.setAttr(
-            "lb",
-            np.repeat(X.getAttr("lb").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0),
+            "lb", (np.ones(A.shape) @ X.getAttr("lb").clip(max=0)) / X.shape[0]
         )
         aggregated_features.setAttr(
-            "ub",
-            np.repeat(X.getAttr("ub").mean(axis=0)[np.newaxis, :], X.shape[0], axis=0),
+            "ub", (np.ones(A.shape) @ X.getAttr("ub").clip(min=0)) / X.shape[0]
         )
         model.addConstr(
             aggregated_features * gp.quicksum(A)[:, np.newaxis] == A @ X,
             name=f"{name}_averages_constraint" if name else None,
         )  # may need to transpose
     elif aggr == "sum":
-        # aggregated_features[i][j] is the sum of all node i's neighbors' feature j
         aggregated_features.setAttr(
-            "lb",
-            np.repeat(X.getAttr("lb").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0),
+            "lb", np.ones(A.shape) @ X.getAttr("lb").clip(max=0)
         )
         aggregated_features.setAttr(
-            "ub",
-            np.repeat(X.getAttr("ub").sum(axis=0)[np.newaxis, :], X.shape[0], axis=0),
+            "ub", np.ones(A.shape) @ X.getAttr("ub").clip(min=0)
         )
+
         model.addConstr(
             aggregated_features == A @ X,
             name=f"{name}_sum_constraint" if name else None,
@@ -419,7 +416,7 @@ def add_sage_constraint(
     )
     ts = model.addMVar(
         (X.shape[0], lin_r_weight.shape[0]),
-        lb=ts_lower_bounds,  ## TODO: FIX THIS
+        lb=ts_lower_bounds,
         ub=ts_upper_bounds,
         name=f"{name}_t" if name else None,
     )
