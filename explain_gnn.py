@@ -43,14 +43,14 @@ num_node_features = dataset.num_node_features
 
 def canonicalize_graph(graph):
     # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
-    # TODO: Generalize to non one-hot vector node features
 
+    G = to_networkx(init_graph)
+
+    # TODO: Generalize to non one-hot vector node features
     # Lexicographic ordering of node features (one-hot)
     feature_ordering = np.argsort(np.argmax(graph.x.detach().numpy(), axis=1))
     node_degree_ordering = to_dense_adj(graph.edge_index).squeeze().sum(axis=1)
     lexicographic_ordering = np.lexsort((feature_ordering, node_degree_ordering))
-
-    G = to_networkx(init_graph)
 
     # Sort by node degree, then by lexicographic ordering
     ## DFS to get a node ordering, prioritizing first by node degree, then by lexicographic ordering of node features
@@ -111,6 +111,15 @@ if args.log:
 print("Args:", args)
 print("Number of Classes", dataset.num_classes)
 print("Number of Node Features", num_node_features)
+
+# # Max nn Output Logit for each class in the dataset
+# max_logits = [0] * dataset.num_classes
+# for i, graph in enumerate(dataset):
+#     logits = nn(graph).detach().numpy().squeeze()
+#     for j, logit in enumerate(logits):
+#         if logit > max_logits[j]:
+#             max_logits[j] = logit
+# print("Max Logits:", max_logits)
 
 if args.init_with_data:
     # Initialize with a graph from the dataset
@@ -174,9 +183,6 @@ else:
     # init_graph_adj = torch.randint(0, 2, (num_nodes, num_nodes))
     # init_graph_adj = torch.ones((num_nodes, num_nodes))
     init_graph = Data(x=init_graph_x, edge_index=dense_to_sparse(init_graph_adj)[0])
-
-# Each row of phi is the average embedding of the graphs in the corresponding class of the dataset
-phi = dataset.get_average_phi(nn, "Aggregation")
 
 print(nn)
 num_model_params = sum(param.numel() for param in nn.parameters())
@@ -325,14 +331,21 @@ inverter.set_tracked_vars({"X": X, "A": A})
 #             name=f"node_0_smallest_{j}",
 #         )
 #     m.update()
-canonicalize_graph(init_graph)
+
 # invert_utils.order_onehot_features(inverter.m, A, X) # TODO: See if this works better for MUTAG
 
+canonicalize_graph(init_graph)
+# # Test the canonicalization with the constraints
+# A.Start = to_dense_adj(init_graph.edge_index).squeeze().detach().numpy()
+# inverter.solve()
+# breakpoint()
+# inverter.computeIIS()
 
 ## Build a MIQCP for the trained neural network
 ## For each layer, create and constrain decision variables to represent the output
 debug_start = False
 if debug_start:
+    ## If in Debug Mode, we add layers one at a time and fix them to their starting values. If the model becomes infeasible, we can diagnose the problem by computing a minimal IIS
     previous_layer_output = X
     X.start = init_graph.x.detach().numpy()
     A.start = to_dense_adj(init_graph.edge_index).squeeze().detach().numpy()
@@ -343,7 +356,6 @@ if debug_start:
     for name, layer in nn.layers.items():
         inverter.model.update()
         print("Encoding Layer:", name)
-        print("Previous layer lower bound:", previous_layer_output.getAttr("lb")[0])
         previous_layer_output = invert_utils.invert_torch_layer(
             inverter.model,
             layer,
@@ -429,20 +441,6 @@ if debug_start:
                         print("%s = %g" % (sv.VarName, sv.X))
             else:
                 inverter.computeIIS()
-
-            x = all_layer_outputs["Conv_0_Relu"].detach().numpy()
-            a = to_dense_adj(init_graph.edge_index).squeeze().detach().numpy()
-            agf = a @ x
-            lin_l_weight = layer.lin_l.weight.cpu().detach().numpy()
-            lin_r_weight = layer.lin_r.weight.cpu().detach().numpy()
-            lin_l_bias = layer.lin_l.bias.cpu().detach().numpy()
-            res = (
-                (x @ lin_r_weight.T)
-                + (agf @ lin_l_weight.T)
-                + np.expand_dims(lin_l_bias, 0)
-            )
-            real = all_layer_outputs["Conv_1"].detach().numpy()
-            breakpoint()
             import sys
 
             sys.exit()
@@ -453,6 +451,7 @@ if debug_start:
 else:
     previous_layer_output = X
     for name, layer in nn.layers.items():
+        inverter.model.update()
         previous_layer_output = invert_utils.invert_torch_layer(
             inverter.model,
             layer,
@@ -466,6 +465,9 @@ else:
 ## These can also be used in constraints!!!
 embedding = inverter.output_vars["Aggregation"][0]
 regularizers = {}
+if sim_methods:
+    # Each row of phi is the average embedding of the graphs in the corresponding class of the dataset
+    phi = dataset.get_average_phi(nn, "Aggregation")
 if "Cosine" in sim_methods:
     var, calc = invert_utils.get_cosine_similarity(
         inverter.model, embedding, phi[max_class]
