@@ -310,6 +310,16 @@ def order_onehot_features(model, A, X):
                 model.addConstr(sum(X[i, :k]) >= sum(X[j, :k]))
 
 
+def lex_adj_matrix(model, A):
+    # Lexicographic ordering of adjacency matrix
+    # WARNING: Unclear how this restricts the space of graphs, solution may not be optimal
+    model.update()
+    powers = 2 ** np.arange(A.shape[0])
+    for i in range(A.shape[0] - 1):
+        print(f"lex_{i}_{i+1}: {A[i] @ powers} >= {A[i + 1] @ powers}")
+        model.addConstr(A[i] @ powers >= A[i + 1] @ powers, name=f"lex_{i}_{i+1}")
+
+
 # def add_relu_constraint(model, X, name=None):
 #     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
 #     model.update()
