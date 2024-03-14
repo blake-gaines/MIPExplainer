@@ -26,7 +26,11 @@ output_file = args.output_file
 sim_weights = dict(zip(args.regularizers, args.regularizer_weights))
 sim_methods = args.regularizers
 num_nodes = args.num_nodes
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = (
+    args.device
+    if args.device is not None
+    else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+)
 
 if not model_path:
     model_path = f"models/{dataset_name}_model.pth"
@@ -109,6 +113,7 @@ if args.log:
     wandb.run.log_code(".")
 
 print("Args:", args)
+print("Device:", device)
 print("Number of Classes", dataset.num_classes)
 print("Number of Node Features", num_node_features)
 
