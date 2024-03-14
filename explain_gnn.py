@@ -588,6 +588,9 @@ def callback(model, where):
             "WorkUnits": work_units,
         }
 
+        if args.log:
+            wandb.log(mip_info)
+
         mip_information.append(mip_info)
 
 
