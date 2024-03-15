@@ -45,12 +45,6 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--trim_unneeded_outputs",
-        action="store_true",
-        help="Excludes non-maximized outputs from the model",
-    )
-
-    parser.add_argument(
         "--init_with_data",
         action="store_true",
         help="If true, initialize with the graph in the dataset (index of init_index), otherwise start with a predefined graph",
