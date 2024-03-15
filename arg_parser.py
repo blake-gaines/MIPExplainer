@@ -20,7 +20,6 @@ def parse_args():
         "--num_nodes",
         type=int,
         help="Number of nodes in the explanation graph",
-        required=True,
     )
 
     parser.add_argument("--model_path", type=str, help="Path to model file")
