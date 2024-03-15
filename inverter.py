@@ -5,6 +5,7 @@ from collections import OrderedDict
 import numpy as np
 import warnings
 from itertools import product
+from invert_utils import invert_torch_layer
 
 
 class ObjectiveTerm:
@@ -25,6 +26,8 @@ class Inverter:
         env,
         convert_inputs_func=None,
         model_name="model",
+        optimization_sense=GRB.MAXIMIZE,
+        verbose=1,
     ):
         self.args = args
         self.nn = nn
@@ -32,13 +35,15 @@ class Inverter:
         self.env = env
         self.convert_inputs_func = convert_inputs_func
         self.model_name = model_name
+        self.optimization_sense = optimization_sense
+        self.verbose = verbose
+
         self.m = gp.Model(model_name, env)
         self.model = self.m
         self.output_vars = OrderedDict()
         self.objective = 0
         self.objective_terms = dict()
         self.all_vars = dict()
-        self.solutions = []
         self.tracked_vars = dict()
         self.input_vars = dict()
 
@@ -65,10 +70,14 @@ class Inverter:
             exts = [exts]
         file_names = [f"{self.model_name}.{ext}" for ext in exts]
         for file_name in file_names:
+            if self.verbose:
+                print(f"Writing {file_name}")
             self.m.write(file_name)
         return file_names if len(file_names) > 1 else file_names[0]
 
     def save_inverter(self, filename="inverter.pkl"):
+        if self.verbose:
+            print(f"Saving Inverter to {filename}")
         everything = dict()
         everything["output_keys"] = {
             key: var.varName for key, var in self.output_vars.items()
@@ -76,6 +85,8 @@ class Inverter:
         pickle.dump(everything, open(filename, "wb"))
 
     def load_inverter(self, filename="inverter.pkl"):
+        if self.verbose:
+            print(f"Loading Inverter from {filename}")
         everything = pickle.load(open(filename, "rb"))
         get_var_matrix = np.vectorize(self.m.getVarByName)
         for key, name_matrix in everything["output_keys"].items():
@@ -84,6 +95,8 @@ class Inverter:
             )
 
     def load_model(self, file_name="model.mps", input_var_names=[]):
+        if self.verbose:
+            print(f"Loading model from {file_name}")
         self.model = gp.read(file_name)
         self.m = self.model
         self.set_input_vars(
@@ -97,6 +110,8 @@ class Inverter:
         return gp.MVar.fromlist(X.tolist())
 
     def solve(self, callback=None, param_file=None, output_file=None, **kwargs):
+        if self.verbose:
+            print("Beginning Solve")
         if callback is None:
             callback = self.get_default_callback()
         # Check variables are bounded or binary
@@ -108,22 +123,37 @@ class Inverter:
         for param_name, param_value in kwargs.items():
             self.m.setParam(param_name, param_value)
 
-        self.solutions = []
         if param_file:
             self.m.read(param_file)
 
+        # TODO: Make these class properties, check if they are already set
+        self.solutions = []
+        self.mip_data = []
         self.m.optimize(callback)
+
+        if self.verbose:
+            print("Solve Ended with Status", self.m.Status)
+            print("Solve Runtime:", self.m.Runtime)
 
         if output_file:
             with open(self.args.output_file, "wb") as f:
                 pickle.dump(self.solutions, f)
+
+        return {
+            "Model Status": self.m.Status,
+            "Node Count": self.m.NodeCount,
+            "Open Node Count": self.m.OpenNodeCount,
+            "Solve Runtime": self.m.Runtime,
+            "MIPGap": self.m.MIPGap,
+        }
 
     def computeIIS(self, output_fname=None):
         if output_fname is None:
             output_fname = f"{self.model_name}.ilp"
         self.m.computeIIS()
         self.m.write(output_fname)
-        print(f"Wrote IIS to {output_fname}")
+        if self.verbose:
+            print(f"Wrote IIS to {output_fname}")
         return output_fname
 
     def get_default_callback(self):
@@ -132,7 +162,6 @@ class Inverter:
                 pass
 
             if where == GRB.Callback.MIPSOL:
-                print("New Solution Found")
                 solution_inputs = {
                     name: model.cbGetSolution(var)
                     for name, var in self.input_vars.items()
@@ -140,6 +169,7 @@ class Inverter:
 
                 last_output_key = next(reversed(self.output_vars))
 
+                ## TODO: Get the output in a cleaner way
                 nn_output = (
                     dict(
                         self.nn.get_all_layer_outputs(
@@ -155,7 +185,6 @@ class Inverter:
                 # breakpoint()
                 divergence = np.abs(nn_output - output_var_value).max()
                 if not np.allclose(nn_output, output_var_value):
-                    "uh oh :("
                     warnings.warn(
                         f"Model outputs diverge: max difference is {divergence:.3e}",
                         category=RuntimeWarning,
@@ -186,7 +215,6 @@ class Inverter:
                             f"The value of the variable representing objective term {name} has diverged from the actual value",
                             action="once",
                         )
-                    ## TODO: Something with this
 
                 solution = (
                     solution_inputs
@@ -200,74 +228,226 @@ class Inverter:
                     }
                 )
                 self.solutions.append(solution)
+                return ("Solution", solution)
+            elif where == GRB.Callback.MIP:
+                # Access MIP information when upper bound is updated
+                runtime = model.cbGet(GRB.Callback.RUNTIME)
+                if self.mip_data and runtime - self.mip_data[-1]["Runtime"] < 1:
+                    return
 
-        return solver_callback
+                # Save the information to a dictionary
+                self.mip_data.append(
+                    {
+                        "ObjBound": model.cbGet(GRB.Callback.MIP_OBJBND),
+                        "BestBound": model.cbGet(GRB.Callback.MIP_OBJBST),
+                        "NodeCount": model.cbGet(GRB.Callback.MIP_NODCNT),
+                        "ExploredNodeCount": model.cbGet(GRB.Callback.MIP_NODCNT),
+                        "UnexploredNodeCount": model.cbGet(GRB.Callback.MIP_NODLFT),
+                        "CutCount": model.cbGet(GRB.Callback.MIP_CUTCNT),
+                        "WorkUnits": model.cbGet(GRB.Callback.WORK),
+                        "Runtime": runtime,
+                    }
+                )
+                return ("MIP Data", self.mip_data[-1])
 
-    def add_objective_term(self, term, weight=1):
-        self.objective_terms[term.name] = term
-        self.objective += term.var * term.weight
-        self.m.setObjective(self.objective, GRB.MAXIMIZE)
+            else:
+                return None
 
-    def warm_start(self, input_var_values, debug_mode=False):
-        self.m.NumStart = 1
-        for input_name, value in input_var_values.items():
-            self.input_vars[input_name].Start = value.detach().numpy()
-        all_outputs = dict(
-            self.nn.get_all_layer_outputs(**self.convert_inputs(**input_var_values))[1:]
+    def recalculate_objective(self):
+        self.m.setObjective(
+            sum(term.var * term.weight for term in self.objective_terms.values()),
+            self.optimization_sense,
         )
+        # self.objective = 0
+        # for term in self.objective_terms.values():
+        #     self.objective += term.var * term.weight
+        # self.m.setObjective(self.objective, GRB.MAXIMIZE)
 
-        all_ub, all_lb = [], []
-        # assert len(all_outputs) == len(self.output_vars), (
-        #     len(all_outputs),
-        #     len(self.output_vars),
-        # )
+    def add_objective_term(self, term):
+        if self.verbose:
+            print(f"Adding Objective Term: {term.name}")
+        self.objective_terms[term.name] = term
+        self.recalculate_objective()
 
-        for layer_name in self.output_vars.keys():
-            var = self.output_vars[layer_name]
-            output = all_outputs[layer_name].detach().numpy()
+    def remove_objective_term(self, term_name):
+        if self.verbose:
+            print(f"Removing Objective Term: {term_name}")
+        del self.objective_terms[term_name]
+        self.recalculate_objective()
 
-            # Allows us to check ranges for bounds
-            all_lb.extend(var.getAttr("lb").flatten().tolist())
-            all_ub.extend(var.getAttr("ub").flatten().tolist())
-
-            # Check variables and ouputs have the same shape
-            assert var.shape == output.shape, (layer_name, var.shape, output.shape)
-            # Check initializations for all variables are geq the lower bounds
-            if not np.less_equal(var.getAttr("lb"), output + 1e-8).all():
-                print(
-                    f'\nERROR: Layer Output Lower than Lower Bounds\nLayer: {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.greater(var.getAttr("lb"), output)]}\nOutputs:\n{output[np.greater(var.getAttr("lb"), output)]}',
-                )
-                raise AssertionError(f"{layer_name} Lower Bound Violation")
-
-            # Check initializations for all variables are leq the upper bounds
-            if not np.greater_equal(var.getAttr("ub"), output - 1e-8).all():
-                print(
-                    f'\nERROR: Layer Output Greater than Upper Bounds\nLayer: {layer_name}\nTotal Bound Violations: {np.greater(var.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{var.getAttr("lb")[np.less(var.getAttr("ub"), output)]}\nOutputs:\n{output[np.less(var.getAttr("ub"), output)]}',
-                )
-                raise AssertionError(f"{layer_name} Upper Bound Violation")
-
-            var.Start = output
-
-            if debug_mode:
-                print(f"Fixing Consteraint: {layer_name}")
-                self.m.addConstr(var == output, name=f"fixing_constraint_{layer_name}")
-
-        self.m.update()
-
-        for term in self.objective_terms:
-            if hasattr(term, "calc"):
-                term.calc(*[req_var.Start for req_var in term.required_vars])
-
-        return {
-            "Lowest Lower Bound": min(all_lb),
-            "Highest Upper Bound": max(all_ub),
-            "Min ABS Bound": min([b for b in np.abs(all_lb + all_ub) if b > 0]),
-        }
-
-    def tune(self, callback=None, **kwargs):
+    def tune(self, **kwargs):
+        if self.verbose:
+            print("Beginning Tune")
         for param_name, param_value in kwargs.items():
             self.m.setParam(param_name, param_value)
             self.m.tune()
             for i in range(self.m.tuneResultCount):
                 self.m.getTuneResult(i)
                 self.m.write("tune" + str(i) + ".prm")
+
+    def bounds_summary(self):
+        summary = {
+            "Lowest Lower Bound": min(
+                var.getAttr("lb").min() for var in self.model.getVars()
+            ),
+            "Highest Upper Bound": max(
+                var.getAttr("ub").max() for var in self.model.getVars()
+            ),
+            "Min ABS Bound": min(
+                min(np.abs(var.getAttr("lb")).min(), np.abs(var.getAttr("ub")).min())
+                for var in self.model.getVars()
+            ),
+        }
+        if self.verbose:
+            print("Bounds Summary")
+            for k, v in summary.items():
+                print(f"{k}: {v}")
+        return summary
+
+    def encode_seq_nn(self, input_inits=None, debug=False):
+        if self.verbose:
+            print("Encoding NN")
+
+        assert hasattr(
+            self.nn, "get_all_layer_outputs"
+        ), "NN must have method get_all_layer_outputs"
+        assert hasattr(
+            self.nn, "layers"
+        ), "NN must have attribute 'layers' containing an ordered dictionary of torch Modules"
+        ## Encode the layers of a sequential
+        ## For each layer, create and constrain decision variables to represent the output
+        ## If in Debug Mode, we add layers one at a time and fix them to their starting values. If the model becomes infeasible, we can diagnose the problem by computing a minimal IIS
+        fixing_constraints = []
+        if input_inits is not None:
+            if self.verbose:
+                print("Setting Warm Start")
+            for var_name, init_value in self.input_inits.items():
+                self.input_vars[var_name] = init_value
+                if debug:
+                    fixing_constraints.append(
+                        self.model.addConstr(
+                            self.input_vars[var_name] == init_value,
+                            name=f"fix_{var_name}",
+                        )
+                    )
+            all_layer_outputs = dict(
+                self.nn.get_all_layer_outputs(**self.convert_inputs(**input_inits))
+            )
+
+        previous_layer_output = self.input_vars[
+            "X"
+        ]  ## TODO: Generalize to arbitrary side information
+        old_numvars = 0
+        old_numconstrs = 0
+
+        for name, layer in self.nn.layers.items():
+            self.model.update()
+            if name not in self.output_vars:
+                print("Encoding layer:", name)
+                previous_layer_output = invert_torch_layer(
+                    self.model,
+                    layer,
+                    name=name,
+                    X=previous_layer_output,
+                    A=self.input_vars[
+                        "A"
+                    ],  ## TODO: Generalize to arbitrary side information
+                )
+                self.output_vars[name] = previous_layer_output
+            else:
+                previous_layer_output = self.output_vars[name]
+            if input_inits is not None:
+                output = all_layer_outputs[name].detach().numpy()
+                assert self.output_vars[name].shape == output.shape
+                if not np.less_equal(
+                    previous_layer_output.getAttr("lb"), output + 1e-8
+                ).all():
+                    print(
+                        f'\nERROR: Layer Output Lower than Lower Bounds\nLayer: {name}\nTotal Bound Violations: {np.greater(previous_layer_output.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{previous_layer_output.getAttr("lb")[np.greater(previous_layer_output.getAttr("lb"), output)]}\nOutputs:\n{output[np.greater(previous_layer_output.getAttr("lb"), output)]}',
+                    )
+                    raise AssertionError(f"{name} Lower Bound Violation")
+
+                # Check initializations for all variables are leq the upper bounds
+                if not np.greater_equal(
+                    previous_layer_output.getAttr("ub"), output - 1e-8
+                ).all():
+                    print(
+                        f'\nERROR: Layer Output Greater than Upper Bounds\nLayer: {name}\nTotal Bound Violations: {np.greater(previous_layer_output.getAttr("lb"), output).sum()} out of {output.size} elements\nLower Bounds:\n{previous_layer_output.getAttr("lb")[np.less(previous_layer_output.getAttr("ub"), output)]}\nOutputs:\n{output[np.less(previous_layer_output.getAttr("ub"), output)]}',
+                    )
+                    raise AssertionError(f"{name} Upper Bound Violation")
+                self.output_vars[name].Start = output
+            if debug:
+                fixing_constraints.append(
+                    self.model.addConstr(
+                        self.output_vars[name]
+                        == all_layer_outputs[name].detach().numpy(),
+                        name=f"fix_{name}",
+                    )
+                )
+            self.model.update()
+            numvars = self.model.NumVars
+            numconstrs = self.model.NumConstrs
+            print(
+                f"Added {numvars - old_numvars} variables and {numconstrs - old_numconstrs} constraints"
+            )
+            if debug:
+                self.model.optimize()
+                if not self.model.Status == GRB.OPTIMAL:
+                    print("============ PROBLEM WITH LAYER:", name, "=================")
+                    print(
+                        "Fixed Variables:",
+                        set(
+                            v.varName.split("[")[0]
+                            for v in self.model.getVars()[:old_numvars]
+                        ),
+                    )
+                    print(
+                        "Fixed Constraints:",
+                        set(
+                            c.ConstrName.split("[")[0]
+                            for c in self.model.getConstrs()[:old_numconstrs]
+                        ),
+                    )
+                    print(
+                        "Relaxing Variables:",
+                        set(
+                            v.varName.split("[")[0]
+                            for v in self.model.getVars()[old_numvars:]
+                        ),
+                    )
+                    print(
+                        "Relaxing Constraints:",
+                        set(
+                            c.ConstrName.split("[")[0]
+                            for c in self.model.getConstrs()[old_numconstrs:]
+                        ),
+                    )
+                    lbpen = [1.0] * (numvars - old_numvars)
+                    ubpen = [1.0] * (numvars - old_numvars)
+                    rhspen = [1.0] * (numconstrs - old_numconstrs)
+
+                    print(
+                        "feasRelax Result:",
+                        self.model.feasRelax(
+                            0,
+                            False,
+                            self.model.getVars()[old_numvars:],
+                            lbpen,
+                            ubpen,
+                            self.model.getConstrs()[old_numconstrs:],
+                            rhspen,
+                        ),
+                    )
+                    self.model.optimize()
+                    print("\nSlack values:")
+                    slacks = self.model.getVars()[numvars:]
+                    for sv in slacks:
+                        if sv.X > 1e-9:
+                            print("%s = %g" % (sv.VarName, sv.X))
+                    raise ValueError("Infeasible Model")
+
+            old_numvars = numvars
+            old_numconstrs = numconstrs
+
+        if debug:
+            self.model.remove(fixing_constraints)

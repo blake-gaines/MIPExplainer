@@ -6,6 +6,9 @@ from torch_geometric.nn.aggr import SumAggregation, MeanAggregation
 from torch_geometric.nn import SAGEConv
 from math import floor
 from tqdm.autonotebook import tqdm
+from torch_geometric.utils import to_networkx
+from networkx import dfs_preorder_nodes, relabel_nodes
+from torch import Tensor
 
 
 def invert_torch_layer(model, layer, **kwargs):
@@ -558,3 +561,33 @@ def get_squared_l2_distance(model, var, vec, name="squared_l2_distance"):
         name=f"{name}_constr",
     )  # l2_dist(u,v)^2 = (u-v)^T(u-v)
     return squared_l2_distance, lambda newvec: norm(newvec - vec) ** 2
+
+
+def get_max(model, vars, name=None):
+    if name is None:
+        name = "max_of_" + sum((v.getAttr("varName") for v in vars), start="")
+    max_var = model.addVar(
+        lb=max(v.getAttr("lb") for v in vars),
+        ub=max(v.getAttr("ub") for v in vars),
+    )
+    model.addGenConstrMax(max_var, vars, name=f"{name}_constr")
+    return max_var
+
+
+def canonicalize_graph(data):
+    # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
+
+    G = to_networkx(data)
+
+    # Get node ordering
+    sorted_nodes = list(dfs_preorder_nodes(G, source=next(G.nodes)))
+    sorted_nodes.reverse()
+
+    # Create a mapping of old labels to new labels
+    label_mapping = {node: i for i, node in enumerate(sorted_nodes)}
+
+    # Relabel the graph
+    G = relabel_nodes(G, label_mapping)
+
+    data.x = data.x[sorted_nodes, :]
+    data.edge_index = Tensor(list(G.edges)).to(data.edge_index.dtype).T
