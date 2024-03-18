@@ -8,13 +8,15 @@ import pickle
 from abc import ABC, abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import random
+from torch_geometric.utils import dense_to_sparse
+from torch_geometric.data import Data
 
 
 class Dataset(torch.utils.data.Dataset, ABC):
     name = "ABC"
     root = "data"
+    node_feature_type = "constant"
 
     def __init__(self, *, dtype=torch.float32, seed=None):
         self.dtype = dtype
@@ -64,6 +66,16 @@ class Dataset(torch.utils.data.Dataset, ABC):
             embedding_sum[data.y] += torch.sum(embeddings, dim=0)
             n_instances[data.y] += 1
         return (embedding_sum / torch.unsqueeze(n_instances, 1)).detach().numpy()
+
+    def get_random_graph(self, label=None, num_nodes=None):
+        choices = self.data
+        if label is not None:
+            choices = [d for d in choices if d.y == label]
+        if num_nodes is not None:
+            choices = [d for d in choices if d.num_nodes == num_nodes]
+        if not choices:
+            raise ValueError("No graphs found with the given parameters.")
+        return random.choice(choices)
 
     def __len__(self):
         return len(self.data)
@@ -135,9 +147,7 @@ class GraphDataset(Dataset):
                 x_indices = np.argmax(X, axis=1)
 
             if hasattr(self, "NODE_CLS"):
-                labels = (
-                    dict(zip(range(X.shape[0]), map(self.NODE_CLS.get, x_indices)))
-                )
+                labels = dict(zip(range(X.shape[0]), map(self.NODE_CLS.get, x_indices)))
             else:
                 labels = None
 
@@ -164,3 +174,27 @@ class GraphDataset(Dataset):
             **kwargs,
         )
         return fig, ax
+
+    def random_connected_adj(self, num_nodes):
+        # TODO: Make this reasonable
+        adj = torch.randint(0, 2, (num_nodes, num_nodes))
+        adj = torch.triu(adj, diagonal=1)
+        adj = adj + adj.T
+        adj = torch.clip(adj, 0, 1)
+        adj = adj.numpy()
+        adj = np.clip(adj + np.eye(num_nodes, k=1), a_min=0, a_max=1)
+        adj = np.clip(adj + np.eye(num_nodes, k=-1), a_min=0, a_max=1)
+        adj = torch.Tensor(adj)
+        return adj
+
+    def dummy_graph(self, num_nodes):
+        adj = self.random_connected_adj(num_nodes)
+        if self.node_feature_type == "constant":
+            x = torch.ones((num_nodes, self.num_node_features))
+        elif self.node_feature_type == "one-hot":
+            x = torch.eye(self.num_node_features)[
+                torch.randint(self.num_node_features, (num_nodes,))
+            ]
+        elif self.node_feature_type == "degree":
+            x = torch.unsqueeze(torch.sum(adj, dim=-1), dim=-1)
+        return Data(x=x, edge_index=dense_to_sparse(adj)[0])

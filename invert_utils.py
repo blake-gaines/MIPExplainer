@@ -9,6 +9,7 @@ from tqdm.autonotebook import tqdm
 from torch_geometric.utils import to_networkx
 from networkx import dfs_preorder_nodes, relabel_nodes
 from torch import Tensor
+from gurobipy import GRB
 
 
 def invert_torch_layer(model, layer, **kwargs):
@@ -195,7 +196,7 @@ def add_torch_conv2d_constraint(model, layer, X, name=None):
     for kernel_index in tqdm(range(Cout), desc=name):
         kernel = weight[kernel_index]
         bias = bias_vector[kernel_index]
-
+        ## TODO: USE QUICKSUM DUDE
         for i in range(0, Hout):
             for j in range(0, Wout):
                 model.addConstr(
@@ -310,7 +311,7 @@ def order_onehot_features(model, A, X):
     for i in range(X.shape[0] - 1):
         for j in range(i + 1, X.shape[0]):
             for k in range(X.shape[1]):
-                model.addConstr(sum(X[i, :k]) >= sum(X[j, :k]))
+                model.addConstr(gp.quicksum(X[i, :k]) >= gp.quicksum(X[j, :k]))
 
 
 def lex_adj_matrix(model, A):
@@ -321,6 +322,35 @@ def lex_adj_matrix(model, A):
     for i in range(A.shape[0] - 1):
         print(f"lex_{i}_{i+1}: {A[i] @ powers} >= {A[i + 1] @ powers}")
         model.addConstr(A[i] @ powers >= A[i + 1] @ powers, name=f"lex_{i}_{i+1}")
+
+
+def get_one_hot_features(model, num_nodes, num_node_features, name="X"):
+    # One-hot node features
+    X = model.addMVar((num_nodes, num_node_features), vtype=GRB.BINARY, name=name)
+    model.addConstr(gp.quicksum(X.T) == 1, name="categorical_features")
+    return X
+
+
+def get_node_degree_features(model, num_nodes, num_node_features, A, name="X"):
+    # Node degree node features
+    X = model.addMVar(
+        (num_nodes, num_node_features), lb=0, ub=num_nodes, name=name, vtype=GRB.INTEGER
+    )
+    model.addConstr(
+        X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees"
+    )
+    return X
+
+
+def get_constant_features(model, feature_mat, name="X"):
+    # Constant node features
+    X = model.addMVar(
+        feature_mat.shape,
+        lb=feature_mat,
+        ub=feature_mat,
+        name=name,
+    )
+    return X
 
 
 # def add_relu_constraint(model, X, name=None):
@@ -580,7 +610,7 @@ def canonicalize_graph(data):
     G = to_networkx(data)
 
     # Get node ordering
-    sorted_nodes = list(dfs_preorder_nodes(G, source=next(G.nodes)))
+    sorted_nodes = list(dfs_preorder_nodes(G, source=next(iter(G.nodes))))
     sorted_nodes.reverse()
 
     # Create a mapping of old labels to new labels

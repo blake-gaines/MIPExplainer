@@ -1,5 +1,5 @@
 from explain_gnn import dummy_graph, encode_seq_gnn
-from arg_parser import parse_args
+from utils import parse_args
 from inverter import Inverter, ObjectiveTerm
 
 

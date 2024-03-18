@@ -4,6 +4,8 @@ import os
 
 
 class MUTAG_dataset(GraphDataset):
+    node_feature_type = "one-hot"
+
     NODE_CLS = {
         0: "C",
         1: "N",

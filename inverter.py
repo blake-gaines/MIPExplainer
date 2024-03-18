@@ -109,7 +109,7 @@ class Inverter:
             X[index] = self.m.getVarByName(f"{name}[{','.join(str(i) for i in index)}]")
         return gp.MVar.fromlist(X.tolist())
 
-    def solve(self, callback=None, param_file=None, output_file=None, **kwargs):
+    def solve(self, callback=None, param_file=None, **kwargs):
         if self.verbose:
             print("Beginning Solve")
         if callback is None:
@@ -135,10 +135,6 @@ class Inverter:
             print("Solve Ended with Status", self.m.Status)
             print("Solve Runtime:", self.m.Runtime)
 
-        if output_file:
-            with open(self.args.output_file, "wb") as f:
-                pickle.dump(self.solutions, f)
-
         return {
             "Model Status": self.m.Status,
             "Node Count": self.m.NodeCount,
@@ -162,6 +158,7 @@ class Inverter:
                 pass
 
             if where == GRB.Callback.MIPSOL:
+                print("New Solution Found!")
                 solution_inputs = {
                     name: model.cbGetSolution(var)
                     for name, var in self.input_vars.items()
@@ -191,7 +188,7 @@ class Inverter:
                     )
 
                 objective_term_values = {
-                    name: self.m.cbGetSolution(term.var)
+                    name: model.cbGetSolution(term.var)
                     for name, term in self.objective_terms.items()
                 }
 
@@ -228,6 +225,7 @@ class Inverter:
                     }
                 )
                 self.solutions.append(solution)
+                print("Num Solutions:", len(self.solutions))
                 return ("Solution", solution)
             elif where == GRB.Callback.MIP:
                 # Access MIP information when upper bound is updated
@@ -252,6 +250,8 @@ class Inverter:
 
             else:
                 return None
+
+        return solver_callback
 
     def recalculate_objective(self):
         self.m.setObjective(
@@ -288,13 +288,13 @@ class Inverter:
     def bounds_summary(self):
         summary = {
             "Lowest Lower Bound": min(
-                var.getAttr("lb").min() for var in self.model.getVars()
+                var.getAttr("lb") for var in self.model.getVars()
             ),
             "Highest Upper Bound": max(
-                var.getAttr("ub").max() for var in self.model.getVars()
+                var.getAttr("ub") for var in self.model.getVars()
             ),
             "Min ABS Bound": min(
-                min(np.abs(var.getAttr("lb")).min(), np.abs(var.getAttr("ub")).min())
+                min(abs(var.getAttr("lb")), abs(var.getAttr("ub")))
                 for var in self.model.getVars()
             ),
         }
@@ -304,7 +304,7 @@ class Inverter:
                 print(f"{k}: {v}")
         return summary
 
-    def encode_seq_nn(self, input_inits=None, debug=False):
+    def encode_seq_nn(self, input_inits=None, add_layers=True, debug=False):
         if self.verbose:
             print("Encoding NN")
 
@@ -321,8 +321,8 @@ class Inverter:
         if input_inits is not None:
             if self.verbose:
                 print("Setting Warm Start")
-            for var_name, init_value in self.input_inits.items():
-                self.input_vars[var_name] = init_value
+            for var_name, init_value in input_inits.items():
+                self.input_vars[var_name].Start = init_value
                 if debug:
                     fixing_constraints.append(
                         self.model.addConstr(
@@ -337,12 +337,13 @@ class Inverter:
         previous_layer_output = self.input_vars[
             "X"
         ]  ## TODO: Generalize to arbitrary side information
-        old_numvars = 0
-        old_numconstrs = 0
+        self.model.update()
+        old_numvars = self.model.NumVars
+        old_numconstrs = self.model.NumConstrs
 
         for name, layer in self.nn.layers.items():
             self.model.update()
-            if name not in self.output_vars:
+            if add_layers:
                 print("Encoding layer:", name)
                 previous_layer_output = invert_torch_layer(
                     self.model,
@@ -353,6 +354,7 @@ class Inverter:
                         "A"
                     ],  ## TODO: Generalize to arbitrary side information
                 )
+                self.model.update()
                 self.output_vars[name] = previous_layer_output
             else:
                 previous_layer_output = self.output_vars[name]
