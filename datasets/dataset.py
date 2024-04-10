@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import random
 from torch_geometric.utils import dense_to_sparse
 from torch_geometric.data import Data
+from sklearn.model_selection import train_test_split
 
 
 class Dataset(torch.utils.data.Dataset, ABC):
@@ -20,6 +21,7 @@ class Dataset(torch.utils.data.Dataset, ABC):
 
     def __init__(self, *, dtype=torch.float32, seed=None):
         self.dtype = dtype
+        self.seed = seed
         self._seed_all(seed)
         self.data = self.get_data()
 
@@ -41,8 +43,27 @@ class Dataset(torch.utils.data.Dataset, ABC):
             np.random.seed(seed)
             torch.manual_seed(seed)
 
+    def split(self, test_size=0.2, val_size=None):
+        self.train_data, self.test_data = train_test_split(
+            self.data, test_size=test_size, random_state=self.seed
+        )
+        if val_size is not None:
+            self.test_data, self.val_data = train_test_split(
+                self.test_data, test_size=val_size, random_state=self.seed
+            )
+
     def loader(self, *args, **kwargs):
         return torch.data.DataLoader(self, *args, **kwargs)
+
+    def get_train_loader(self, *args, **kwargs):
+        if not hasattr(self, "train_data"):
+            self.split()
+        return self.loader(dataset=self.train_data, *args, **kwargs)
+
+    def get_test_loader(self, *args, **kwargs):
+        if not hasattr(self, "test_data"):
+            self.split()
+        return self.loader(dataset=self.test_data, *args, **kwargs)
 
     def show(self, idx, ax=None, **kwargs):
         data = self[idx]
@@ -97,7 +118,7 @@ class GraphDataset(Dataset):
         self.num_edge_features = self.data[0].num_edge_features
 
     def loader(self, *args, **kwargs):
-        return DataLoader(self, *args, **kwargs)
+        return DataLoader(*args, **kwargs)
 
     def nx_to_pyg(self, G):
         raise NotImplementedError
