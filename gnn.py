@@ -11,8 +11,6 @@ from torch_geometric.nn.aggr import (
     MaxAggregation,
     Aggregation,
 )
-
-from torch_geometric.datasets import TUDataset
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import os
@@ -40,7 +38,7 @@ class GNN(torch.nn.Module):
         lin_features,
         global_aggr="mean",
         conv_aggr="mean",
-        device="cpu"
+        device="cpu",
     ):
         super(GNN, self).__init__()
 
@@ -86,7 +84,11 @@ class GNN(torch.nn.Module):
         X = torch.Tensor(X)
         A = torch.Tensor(A)
         edge_index, edge_weight = dense_to_sparse(A.to(next(self.parameters()).device))
-        data = Data(x=X.to(self.device, next(self.parameters()).dtype), edge_index=edge_index, edge_weight=edge_weight)
+        data = Data(
+            x=X.to(self.device, next(self.parameters()).dtype),
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+        )
         return self.forward(data)
 
     def forward(self, data):
@@ -110,10 +112,12 @@ class GNN(torch.nn.Module):
             if isinstance(layer, SAGEConv):
                 outputs.append((name, layer(outputs[-1][1], edge_index)))
             elif isinstance(layer, Aggregation):
-                outputs.append((name, layer(outputs[-1][1], data.batch.to(self.device))))
+                outputs.append(
+                    (name, layer(outputs[-1][1], data.batch.to(self.device)))
+                )
             else:
                 outputs.append((name, layer(outputs[-1][1])))
-        return [(k, v.cpu()) for k,v in outputs]
+        return [(k, v.cpu()) for k, v in outputs]
 
     def get_layer_output(self, data, layer_name):
         data = self.fix_data(data)
