@@ -2,6 +2,7 @@ import argparse
 import torch
 from datasets import get_dataset
 from gnn import GNN  # noqa: F401
+import os
 
 
 def parse_args():
@@ -56,7 +57,6 @@ def parse_args():
         "-o",
         "--output_file",
         type=str,
-        default="./solutions.pkl",
         help="Name of output file",
     )
     parser.add_argument(
@@ -81,20 +81,23 @@ def setup():
         import wandb
 
         wandb.login()
-        wandb.init(project="GNN-Inverter", config=args)
+        wandb.init(project="GNN-Inverter")
+        if args.param_file is not None:
+            wandb.save(args.param_file, policy="now")
+        wandb.run.log_code(".")
 
     if args.output_file is not None:
         args.output_file = args.output_file
     elif args.log:
-        output_file = f"results/{wandb.run.id}.pkl"
-        wandb.config["output_file"] = output_file
-        wandb.save(output_file, policy="end")
+        args.output_file = f"results/runs_original/{wandb.run.id}.pkl"
     else:
-        output_file = "./results/results.pkl"
+        args.output_file = "./results/results.pkl"
+    os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
 
     if args.log:
         wandb.config.update(vars(args))
         wandb.save(args.param_file, policy="now")
+        wandb.save(args.output_file, policy="end")
         wandb.run.log_code(".")
 
     args.device = (
