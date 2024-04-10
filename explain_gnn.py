@@ -9,7 +9,6 @@ from inverter import Inverter, ObjectiveTerm
 import invert_utils
 import time
 import wandb
-import numpy as np
 from gnn import GNN
 
 
@@ -94,8 +93,9 @@ inverter.encode_seq_nn(
         "X": init_graph.x.detach().numpy(),
         "A": to_dense_adj(init_graph.edge_index).squeeze().detach().numpy(),
     },
-    # max_bound=50,
-)
+    max_bound=50,
+)  # TODO: Fix Canonicalization
+
 run_data.update(inverter.bounds_summary())
 
 # print("Objective: All Pairwise Distances")
@@ -202,6 +202,7 @@ solve_data = inverter.solve(
     callback=utils.get_logging_callback(args, inverter, dataset.draw_graph)
     if args.log
     else None,
+    param_file=args.param_file,
     TimeLimit=round(3600 * 2),
 )
 
