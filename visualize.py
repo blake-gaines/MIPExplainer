@@ -10,7 +10,6 @@ import plotly.express as px
 import plotly.io as pio
 from datasets import get_dataset
 import random
-import matplotlib.pyplot as plt
 from torch_geometric.utils import to_dense_adj
 from PIL import Image
 import io
