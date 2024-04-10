@@ -304,7 +304,9 @@ class Inverter:
                 print(f"{k}: {v}")
         return summary
 
-    def encode_seq_nn(self, input_inits=None, add_layers=True, debug=False):
+    def encode_seq_nn(
+        self, input_inits=None, add_layers=True, debug=False, max_bound=None
+    ):
         if self.verbose:
             print("Encoding NN")
 
@@ -355,6 +357,33 @@ class Inverter:
                     ],  ## TODO: Generalize to arbitrary side information
                 )
                 self.model.update()
+                if max_bound is not None:
+                    for var in previous_layer_output.reshape((-1)).tolist():
+                        if var.UB > max_bound:
+                            if self.verbose:
+                                print(
+                                    f"Lowering upper Bound of {var.varName} from {var.UB} to {max_bound}"
+                                )
+                            var.UB = max_bound
+                        if var.LB < -max_bound:
+                            if self.verbose:
+                                print(
+                                    f"Raising lower Bound of {var.varName} from {var.LB} to {-max_bound}"
+                                )
+                            var.LB = -max_bound
+                    self.model.update()
+                unnamed_constraints = [
+                    constr
+                    for constr in self.model.getConstrs()
+                    if constr.ConstrName is None
+                ] + [
+                    constr
+                    for constr in self.model.getQConstrs()
+                    if constr.QCName is None
+                ]
+                assert (
+                    len(unnamed_constraints) == 0
+                ), f"Unnamed Constraints: {[constr.ConstrName for constr in unnamed_constraints]}"
                 self.output_vars[name] = previous_layer_output
             else:
                 previous_layer_output = self.output_vars[name]
