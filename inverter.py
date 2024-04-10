@@ -140,7 +140,7 @@ class Inverter:
             "Node Count": self.m.NodeCount,
             "Open Node Count": self.m.OpenNodeCount,
             "Solve Runtime": self.m.Runtime,
-            "MIPGap": self.m.MIPGap,
+            "MIPGap": self.m.MIPGap if hasattr(self.m, "MIPGap") else None,
         }
 
     def computeIIS(self, output_fname=None):
