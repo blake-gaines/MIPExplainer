@@ -307,11 +307,35 @@ def force_connected(model, A):
 
 def order_onehot_features(model, A, X):
     # Lexicographic ordering of one-hot node features
-    # Combined with connected constraints: We're adding each next-biggest featured node and connecting it to the existing structure.
-    for i in range(X.shape[0] - 1):
-        for j in range(i + 1, X.shape[0]):
-            for k in range(X.shape[1]):
-                model.addConstr(gp.quicksum(X[i, :k]) >= gp.quicksum(X[j, :k]))
+    # Combined with connected constraints: Ensure no lower-indexed node with the same parent has a higher feature value
+    # Ordering equivalent to BFS with high-feature nodes prioritized
+    # Whenever A[i,j]=1, if A[i,k]=1 for k<j, then X[k] must be lexicographically less than or equal to X[j]
+    model.update()
+    N = X.shape[0]
+    F = X.shape[1]
+    for parent in range(N - 2):
+        for prev_child in range(parent + 1, X.shape[0] - 1):
+            for next_child in range(prev_child + 1, N):
+                both_connected = model.addVar(
+                    vtype=GRB.BINARY,
+                    name=f"both_connected_{parent}_{prev_child}_{next_child}",
+                )
+                model.addConstr(
+                    both_connected
+                    == gp.and_(A[parent, prev_child], A[parent, next_child]),
+                    name=f"both_connected_constr_{parent}_{prev_child}_{next_child}",
+                )
+                model.addConstr(
+                    gp.quicksum(
+                        (2 ** (F - f - 1)) * X[prev_child, f] * both_connected
+                        for f in range(F)
+                    )
+                    <= gp.quicksum(
+                        (2 ** (F - f - 1)) * X[next_child, f] * A[parent, next_child]
+                        for f in range(F)
+                    ),
+                    name=f"one_hot_order_{parent}_{prev_child}_{next_child}",
+                )
 
 
 def lex_adj_matrix(model, A):
@@ -322,6 +346,46 @@ def lex_adj_matrix(model, A):
     for i in range(A.shape[0] - 1):
         print(f"lex_{i}_{i+1}: {A[i] @ powers} >= {A[i + 1] @ powers}")
         model.addConstr(A[i] @ powers >= A[i + 1] @ powers, name=f"lex_{i}_{i+1}")
+
+
+def s1_constraint(model, A):
+    model.update()
+    for i in range(1, A.shape[0]):
+        model.addConstr(
+            gp.quicksum(A[j][i] for j in range(i)) >= 1,
+            name=f"node_{i}_connected",
+        )
+
+
+def s2_constraint(model, X):
+    # From https://arxiv.org/pdf/2305.09420.pdf
+    model.update()
+    N = X.shape[0]
+    F = X.shape[1]
+    for v in range(1, N):
+        model.addConstr(
+            gp.quicksum((2 ** (F - f - 1)) * X[0, f] for f in range(F))
+            >= gp.quicksum((2 ** (F - f - 1)) * X[v, f] for f in range(F)),
+            name=f"s2_{v}",
+        )
+
+
+def s3_constraint(model, A):
+    # From https://arxiv.org/pdf/2305.09420.pdf
+    model.update()
+    N = A.shape[0]
+    for v in range(1, N - 1):
+        model.addConstr(
+            gp.quicksum(
+                (2 ** (N - u - 1)) * A[u, v] for u in range(N) if u != v and u != v + 1
+            )
+            >= gp.quicksum(
+                (2 ** (N - u - 1)) * A[u, v + 1]
+                for u in range(N)
+                if u != v and u != v + 1
+            ),
+            name=f"s3_{v}",
+        )
 
 
 def get_one_hot_features(model, num_nodes, num_node_features, name="X"):
@@ -342,14 +406,17 @@ def get_node_degree_features(model, num_nodes, num_node_features, A, name="X"):
     return X
 
 
-def get_constant_features(model, feature_mat, name="X"):
+def get_constant_features(model, shape, constant, name="X", vtype=GRB.CONTINUOUS):
     # Constant node features
+    # "Constant" argument could be a scalar or a numpy array
     X = model.addMVar(
-        feature_mat.shape,
-        lb=feature_mat,
-        ub=feature_mat,
+        shape,
+        # lb=constant,
+        # ub=constant,
         name=name,
+        vtype=vtype,
     )
+    model.addConstr(X == constant, name="features_are_constant")
     return X
 
 
