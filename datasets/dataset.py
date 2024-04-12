@@ -19,7 +19,7 @@ class Dataset(torch.utils.data.Dataset, ABC):
     root = "data"
     node_feature_type = "constant"
 
-    def __init__(self, *, dtype=torch.float32, seed=None):
+    def __init__(self, *, dtype=torch.float32, seed=7):
         self.dtype = dtype
         self.seed = seed
         self._seed_all(seed)
@@ -132,10 +132,12 @@ class GraphDataset(Dataset):
         X=None,
         edge_index=None,
         data=None,
-        label_dict=None,
-        color_dict=None,
+        nx_graph=None,
         directed=False,
         with_labels=True,
+        fig=None,
+        ax=None,
+        label_key="label",
         **kwargs,
     ):
         if isinstance(A, torch.Tensor):
@@ -155,8 +157,12 @@ class GraphDataset(Dataset):
             G = to_networkx(data, to_undirected=(not directed))
             if hasattr(data, "x"):
                 X = data.x.detach().numpy()
+        elif nx_graph is not None:
+            G = nx_graph
         else:
-            raise ValueError("Supply adjacency matrix or edge list for visualization.")
+            raise ValueError(
+                "Supply adjacency matrix or edge list or nx graph for visualization."
+            )
 
         pos = nx.spring_layout(G, seed=7)
         labels, node_color = None, None
@@ -178,11 +184,12 @@ class GraphDataset(Dataset):
                 )
             else:
                 node_color = None
-
-        fig = plt.figure(frameon=False)
-        ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
-        ax.set_axis_off()
-        fig.add_axes(ax)
+        if fig is None:
+            fig = plt.figure(frameon=False)
+        if ax is None:
+            ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
+            ax.set_axis_off()
+            fig.add_axes(ax)
         nx.draw_networkx(
             G,
             pos=pos,
