@@ -29,25 +29,6 @@ def parse_args():
     parser.add_argument("--device", type=int, help="Index of device to use")
 
     parser.add_argument(
-        "-r",
-        "--regularizers",
-        type=str,
-        action="extend",
-        nargs="+",
-        choices=["Cosine", "Squared L2", "L2"],
-        default=[],
-        help="Names of regularizers to apply",
-    )
-    parser.add_argument(
-        "--regularizer_weights",
-        type=float,
-        action="extend",
-        default=[],
-        nargs="+",
-        help="Regularizer weights, with order corresponding to the names provided to the 'regularizers' argument",
-    )
-
-    parser.add_argument(
         "--init_with_data",
         action="store_true",
         help="If true, initialize with the graph in the dataset (index of init_index), otherwise start with a predefined graph",
@@ -69,6 +50,9 @@ def parse_args():
     parser.add_argument(
         "--log", action="store_true", help="Log the run with Weights & Biases"
     )
+    parser.add_argument(
+        "--mask_index", type=int, help="Index of mask to be applied to the graph"
+    )
     parser.add_argument("--no-log", dest="log", action="store_false")
 
     return parser.parse_args()
@@ -89,7 +73,7 @@ def setup():
     if args.output_file is not None:
         args.output_file = args.output_file
     elif args.log:
-        args.output_file = f"results/runs_original/{wandb.run.id}.pkl"
+        args.output_file = f"results/runs_masks/{wandb.run.id}.pkl"
     else:
         args.output_file = "./results/results.pkl"
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
