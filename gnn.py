@@ -15,7 +15,8 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import os
 import numpy as np
-import pickle
+import pickle  # noqa: F401
+from torch_geometric.datasets import TUDataset  # noqa: F401
 
 
 def prune_weights_below_threshold(module, threshold):
@@ -43,6 +44,7 @@ class GNN(torch.nn.Module):
         super(GNN, self).__init__()
 
         self.device = device
+        self.to(device)
 
         self.layers = ModuleDict()
 
@@ -187,9 +189,7 @@ if __name__ == "__main__":
     if not os.path.isdir("models"):
         os.mkdir("models")
 
-    epochs = 20
-    num_inits = 5
-    num_explanations = 3
+    epochs = 300
     conv_type = "sage"
     global_aggr = "mean"
     conv_aggr = "sum"
@@ -200,8 +200,9 @@ if __name__ == "__main__":
     # model_path = "models/OurMotifs_model_smaller.pth"
     # model_path = "models/Shapes_Clean_model_small.pth"
     # model_path = "models/MUTAG_model_3.pth"
-    model_path = "models/Shapes_Ones_model_2.pth"
+    # model_path = "models/Shapes_Ones_model.pth"
     # model_path = "models/Is_Acyclic_Ones_model.pth"
+    model_path = "models/ENZYMES_model.pth"
 
     log_run = False
 
@@ -213,9 +214,10 @@ if __name__ == "__main__":
     # with open("data/OurMotifs/dataset.pkl", "rb") as f: dataset = pickle.load(f)
     # with open("data/Is_Acyclic/dataset.pkl", "rb") as f: dataset = pickle.load(f)
     # with open("data/Shapes_Clean/dataset.pkl", "rb") as f: dataset = pickle.load(f)
-    with open("data/Shapes_Ones/dataset.pkl", "rb") as f:
-        dataset = pickle.load(f)
+    # with open("data/Shapes_Ones/dataset.pkl", "rb") as f:
+    #     dataset = pickle.load(f)
     # with open("data/Is_Acyclic_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
+    dataset = TUDataset(root="data/TUDataset", name="ENZYMES")
 
     print()
     print(f"Dataset: {str(dataset)[:20]}:")
@@ -251,17 +253,28 @@ if __name__ == "__main__":
         #     conv_aggr=conv_aggr,
         # )
         # model = GNN(in_channels=num_node_features, out_channels=num_classes, conv_features=[64, 32, 16], lin_features=[16, 16], global_aggr=global_aggr, conv_aggr=conv_aggr)
+        # model = GNN(
+        #     in_channels=num_node_features,
+        #     out_channels=num_classes,
+        #     conv_features=[16, 16],
+        #     lin_features=[8],
+        #     global_aggr=global_aggr,
+        #     conv_aggr=conv_aggr,
+        # )
+        # model.to(torch.float64)
+        # optimizer = torch.optim.Adam(model.parameters(), weight_decay=0.0001, lr=0.01)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         model = GNN(
             in_channels=num_node_features,
             out_channels=num_classes,
-            conv_features=[16, 16],
-            lin_features=[8],
+            conv_features=[16, 16, 16],
+            lin_features=[64, 32, 16],
             global_aggr=global_aggr,
             conv_aggr=conv_aggr,
+            device=device,
         )
-        model.to(torch.float64)
-        # optimizer = torch.optim.AdamW(model.parameters(), weight_decay=0.0001)
-        optimizer = torch.optim.Adam(model.parameters(), weight_decay=0.0001, lr=0.01)
+        model.to(device, torch.float64)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
         criterion = torch.nn.CrossEntropyLoss()
         print(model)
