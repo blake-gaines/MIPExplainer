@@ -7,7 +7,7 @@ from torch_geometric.nn import SAGEConv
 from math import floor
 from tqdm.autonotebook import tqdm
 from torch_geometric.utils import to_networkx
-from networkx import dfs_preorder_nodes, relabel_nodes
+from networkx import relabel_nodes
 from torch import Tensor
 from gurobipy import GRB
 from functools import cmp_to_key
