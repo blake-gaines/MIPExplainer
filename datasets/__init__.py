@@ -15,6 +15,10 @@ def get_dataset(name):
         from .ENZYMES import ENZYMES_dataset
 
         dataset = ENZYMES_dataset()
+    elif name == "MNISTSuperpixels":
+        from .MNISTSuperpixels import MNISTSuperpixels_dataset
+
+        dataset = MNISTSuperpixels_dataset()
     else:
         raise ValueError(f"No dataset with the name '{name}' was found")
     return dataset

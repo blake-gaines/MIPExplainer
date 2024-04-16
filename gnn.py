@@ -189,7 +189,7 @@ if __name__ == "__main__":
     if not os.path.isdir("models"):
         os.mkdir("models")
 
-    epochs = 300
+    epochs = 100
     conv_type = "sage"
     global_aggr = "mean"
     conv_aggr = "sum"
@@ -202,7 +202,8 @@ if __name__ == "__main__":
     # model_path = "models/MUTAG_model_3.pth"
     # model_path = "models/Shapes_Ones_model.pth"
     # model_path = "models/Is_Acyclic_Ones_model.pth"
-    model_path = "models/ENZYMES_model.pth"
+    # model_path = "models/ENZYMES_model.pth"
+    model_path = "models/MNISTSuperpixels_model.pth"
 
     log_run = False
 
@@ -217,7 +218,10 @@ if __name__ == "__main__":
     # with open("data/Shapes_Ones/dataset.pkl", "rb") as f:
     #     dataset = pickle.load(f)
     # with open("data/Is_Acyclic_Ones/dataset.pkl", "rb") as f: dataset = pickle.load(f)
-    dataset = TUDataset(root="data/TUDataset", name="ENZYMES")
+    # dataset = TUDataset(root="data/TUDataset", name="ENZYMES")
+    from torch_geometric.datasets import MNISTSuperpixels
+
+    dataset = MNISTSuperpixels("data/MNISTSuperpixels", train=True)
 
     print()
     print(f"Dataset: {str(dataset)[:20]}:")
@@ -267,14 +271,16 @@ if __name__ == "__main__":
         model = GNN(
             in_channels=num_node_features,
             out_channels=num_classes,
-            conv_features=[16, 16, 16],
-            lin_features=[64, 32, 16],
+            conv_features=[64, 32, 16, 16],
+            lin_features=[16, 16, 16],
             global_aggr=global_aggr,
             conv_aggr=conv_aggr,
             device=device,
         )
         model.to(device, torch.float64)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+        optimizer = torch.optim.Adam(
+            model.parameters(), lr=0.001
+        )  # , weight_decay=1e-4)
 
         criterion = torch.nn.CrossEntropyLoss()
         print(model)
@@ -293,6 +299,7 @@ if __name__ == "__main__":
             #     print("New Best Test Accuracy: Saving")
             #     prev_best_test_acc = test_acc
             #     torch.save(model, model_path)
+            torch.save(model, model_path)
 
         prune_weights_below_threshold(model, prune_threshold)
         test_acc = test(model, test_loader)
