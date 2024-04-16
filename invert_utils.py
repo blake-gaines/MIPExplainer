@@ -10,6 +10,7 @@ from torch_geometric.utils import to_networkx
 from networkx import dfs_preorder_nodes, relabel_nodes
 from torch import Tensor
 from gurobipy import GRB
+from functools import cmp_to_key
 
 
 def invert_torch_layer(model, layer, **kwargs):
@@ -671,17 +672,89 @@ def get_max(model, vars, name=None):
     return max_var
 
 
+def aleqb(a, b):
+    sorted_a = sorted(list(a))
+    sorted_b = sorted(list(b))
+    for i in range(min(len(sorted_a), len(sorted_b))):
+        if sorted_a[i] < sorted_b[i]:
+            return -1
+        if sorted_a[i] > sorted_b[i]:
+            return 1
+    if len(sorted_a) == len(sorted_b):
+        return 0
+    elif len(sorted_a) < len(sorted_b):
+        return 1
+    else:
+        return -1
+
+
+def get_ranks(d):
+    initial_ranks = {i: sum(aleqb(d[i], d[j]) == 1 for j in d.keys()) for i in d.keys()}
+    ranks = {k: v for v, k in enumerate(sorted(set(initial_ranks.values())))}
+    return {k: ranks[initial_ranks[k]] for k in d.keys()}
+
+
+def LO(d):
+    # Lexicographic ordering of the keys of d based on their values, which are set
+    return sorted(d.keys(), key=lambda k: cmp_to_key(aleqb)(d[k]))
+
+
 def canonicalize_graph(data):
-    # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (maybe) version
+    # This function will reorder the nodes of a given graph (PyTorch Geometric "Data" Object) to a canonical (ish) version
+    # From https://arxiv.org/pdf/2305.09420.pdf
 
     G = to_networkx(data)
 
-    # Get node ordering
-    sorted_nodes = list(dfs_preorder_nodes(G, source=next(iter(G.nodes))))
-    sorted_nodes.reverse()
+    ## Test with example from reference above
+    # import networkx as nx
+    # G = nx.Graph()
+    # for i in range(6):
+    #     G.add_node(i)
+    # G.add_edges_from(
+    #     [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (1, 2), (1, 3), (1, 4), (2, 5), (3, 4)]
+    # )
 
-    # Create a mapping of old labels to new labels
-    label_mapping = {node: i for i, node in enumerate(sorted_nodes)}
+    # # Get node ordering
+    # sorted_nodes = list(dfs_preorder_nodes(G, source=next(iter(G.nodes))))
+    # sorted_nodes.reverse()
+    # # Create a mapping of old labels to new labels
+    # label_mapping = {node: i for i, node in enumerate(sorted_nodes)}
+
+    unindexed_nodes = set(G.nodes)
+    first_node = unindexed_nodes.pop()
+    # print("First Node:", first_node)
+    s = 1
+    label_mapping = {first_node: 0}
+    while s < len(G.nodes):
+        indexed_neighbors = {
+            node: {
+                label_mapping[neighbor]
+                for neighbor in G.neighbors(node)
+                if neighbor in label_mapping
+            }
+            for node in unindexed_nodes
+        }
+        # print("Indexed Neighbors:", indexed_neighbors)
+        ranks = get_ranks(indexed_neighbors)
+        # print("Ranks:", ranks)
+        temporary_indices = {
+            v: (label_mapping[v] if v in label_mapping else ranks[v] + s)
+            for v in G.nodes
+        }
+        # print("Temporary Indices:", temporary_indices)
+        temp_neighbor_set = {
+            v: [temporary_indices[u] for u in G.neighbors(v)] for v in unindexed_nodes
+        }
+        # print("Temporary Neighbor Set:", temp_neighbor_set)
+        vs = LO(temp_neighbor_set)[0]
+        # print("LO:", LO(temp_neighbor_set))
+        # print("Selected Node:", vs)
+
+        label_mapping[vs] = s
+        unindexed_nodes.remove(vs)
+        s += 1
+
+    sorted_nodes = sorted(label_mapping.keys(), key=lambda x: label_mapping[x])
 
     # Relabel the graph
     G = relabel_nodes(G, label_mapping)
