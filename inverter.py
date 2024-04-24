@@ -322,7 +322,7 @@ class Inverter:
         fixing_constraints = []
         if input_inits is not None:
             if self.verbose:
-                print("Setting Warm Start")
+                print("    Setting Warm Start")
             for var_name, init_value in input_inits.items():
                 self.input_vars[var_name].Start = init_value
                 if debug:
@@ -346,7 +346,7 @@ class Inverter:
         for name, layer in self.nn.layers.items():
             self.model.update()
             if add_layers:
-                print("Encoding layer:", name)
+                print("    Encoding layer:", name)
                 previous_layer_output = invert_torch_layer(
                     self.model,
                     layer,
@@ -362,13 +362,13 @@ class Inverter:
                         if var.UB > max_bound:
                             if self.verbose:
                                 print(
-                                    f"Lowering upper Bound of {var.varName} from {var.UB} to {max_bound}"
+                                    f"        Lowering upper Bound of {var.varName} from {var.UB} to {max_bound}"
                                 )
                             var.UB = max_bound
                         if var.LB < -max_bound:
                             if self.verbose:
                                 print(
-                                    f"Raising lower Bound of {var.varName} from {var.LB} to {-max_bound}"
+                                    f"        Raising lower Bound of {var.varName} from {var.LB} to {-max_bound}"
                                 )
                             var.LB = -max_bound
                     self.model.update()
@@ -419,7 +419,7 @@ class Inverter:
             numvars = self.model.NumVars
             numconstrs = self.model.NumConstrs
             print(
-                f"Added {numvars - old_numvars} variables and {numconstrs - old_numconstrs} constraints"
+                f"    Added {numvars - old_numvars} variables and {numconstrs - old_numconstrs} constraints"
             )
             if debug:
                 self.model.optimize()

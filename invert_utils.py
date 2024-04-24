@@ -437,8 +437,8 @@ def get_constant_features(model, shape, constant, name="X", vtype=GRB.CONTINUOUS
 def add_relu_constraint(model, X, name=None, **kwargs):
     # Returns a matrix of decision variables constrained to ReLU(X), where X is also a matrix of decision variables
     model.update()
-    print("X UB < 0 COUNT:", np.less(X.getAttr("ub"), 0).sum())
-    print("X LB > 0 COUNT:", np.greater(X.getAttr("lb"), 0).sum())
+    print("    X UB < 0 COUNT:", np.less(X.getAttr("ub"), 0).sum())
+    print("    X LB > 0 COUNT:", np.greater(X.getAttr("lb"), 0).sum())
     ts = model.addMVar(
         X.shape,
         lb=X.getAttr("lb").clip(min=0),
