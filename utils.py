@@ -54,6 +54,9 @@ def parse_args():
         "--mask_index", type=int, help="Index of mask to be applied to the graph"
     )
     parser.add_argument("--no-log", dest="log", action="store_false")
+    parser.add_argument(
+        "--tags", action="extend", nargs="+", type=str, help="Add tags for the run"
+    )
 
     return parser.parse_args()
 
@@ -83,6 +86,7 @@ def setup():
         wandb.save(args.param_file, policy="now")
         wandb.save(args.output_file, policy="end")
         wandb.run.log_code(".")
+        wandb.run.tags += tuple(args.tags)
 
     args.device = (
         args.device
