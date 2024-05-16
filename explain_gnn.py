@@ -40,7 +40,9 @@ print(nn)
 
 num_model_params = sum(param.numel() for param in nn.parameters())
 print("Model Parameters:", num_model_params)
-run_data["# Model Parameter"] = num_model_params
+run_data["# Model Parameters"] = num_model_params
+if args.log:
+    wandb.run.summary["# Model Parameters"] = num_model_params
 
 start_time = time.time()
 
@@ -59,16 +61,20 @@ invert_utils.s3_constraint(m, A)
 
 # Add and constrain decision variables for node feature matrix
 if dataset.node_feature_type == "one-hot":
+    print("Adding One-Hot Features")
     X = invert_utils.get_one_hot_features(m, args.num_nodes, dataset.num_node_features)
     # invert_utils.order_onehot_features(
     #     inverter.m, A, X
     # )  ## TODO: See if this works/improves solution time
+    print("Adding S2 Constraint")
     invert_utils.s2_constraint(m, X)
 elif dataset.node_feature_type == "degree":
+    print("Adding Degree Features")
     X = invert_utils.get_node_degree_features(
         m, args.num_nodes, dataset.num_node_features, A
     )
 elif dataset.node_feature_type == "constant":
+    print("Adding Constant Features")
     X = invert_utils.get_constant_features(
         m,
         (args.num_nodes, dataset.num_node_features),
@@ -80,6 +86,7 @@ elif dataset.node_feature_type == "constant":
     # )
     # m.addConstr(X == 1, name="features_are_ones")
 else:
+    print("Adding Continuous Features")
     X = m.addMVar(
         (args.num_nodes, dataset.num_node_features),
         lb=-float("inf"),
@@ -95,11 +102,14 @@ inverter.encode_seq_nn(
         "X": init_graph.x.detach().numpy(),
         "A": to_dense_adj(init_graph.edge_index).squeeze().detach().numpy(),
     },
-    # debug=False,
-    # max_bound=None,
+    debug=False,
+    max_bound=None,
 )
 
-run_data.update(inverter.bounds_summary())
+bounds_summary = inverter.bounds_summary()
+run_data.update(bounds_summary)
+if args.log:
+    wandb.run.summary.update(bounds_summary)
 
 # List of decision variables representing the logits that are not the args.max_class logit
 other_outputs_vars = [
@@ -198,14 +208,6 @@ solve_data = inverter.solve(
     TimeLimit=round(3600 * 2),
 )
 
-run_data.update(
-    {
-        "mip_information": inverter.mip_data,
-        "solutions": inverter.solutions,
-        "solve_data": solve_data,
-    }
-)
-
 # if m.Status in [3, 4]:  # If the model is infeasible, see why
 #     inverter.computeIIS()
 
@@ -215,6 +217,13 @@ if args.log:
     wandb.run.summary.update(solve_data)
     wandb.run.summary["runtime"] = run_data["runtime"]
 
+run_data.update(
+    {
+        "mip_information": inverter.mip_data,
+        "solutions": inverter.solutions,
+        "solve_data": solve_data,
+    }
+)
 
 with open(args.output_file, "wb") as f:
     pickle.dump(run_data, f)
