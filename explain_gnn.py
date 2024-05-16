@@ -93,8 +93,9 @@ inverter.encode_seq_nn(
         "X": init_graph.x.detach().numpy(),
         "A": to_dense_adj(init_graph.edge_index).squeeze().detach().numpy(),
     },
-    max_bound=50,
-)  # TODO: Fix Canonicalization
+    # debug=False,
+    # max_bound=None,
+)
 
 run_data.update(inverter.bounds_summary())
 
@@ -127,6 +128,8 @@ inverter.add_objective_term(
         "Target Class Output", inverter.output_vars["Output"][0, args.max_class]
     )
 )
+
+# next_class = args.max_class + 1 if args.max_class < dataset.num_classes - 1 else 0
 
 # inverter.model.setObjective(
 #     (
@@ -206,14 +209,21 @@ solve_data = inverter.solve(
     TimeLimit=round(3600 * 2),
 )
 
-run_data.update({"mip_information": inverter.mip_data, "solutions": inverter.solutions})
+run_data.update(
+    {
+        "mip_information": inverter.mip_data,
+        "solutions": inverter.solutions,
+        "solve_data": solve_data,
+    }
+)
 
-if m.Status in [3, 4]:  # If the model is infeasible, see why
-    inverter.computeIIS()
+# if m.Status in [3, 4]:  # If the model is infeasible, see why
+#     inverter.computeIIS()
 
 end_time = time.time()
 run_data["runtime"] = end_time - start_time
 if args.log:
+    wandb.run.summary.update(solve_data)
     wandb.run.summary["runtime"] = run_data["runtime"]
 
 
