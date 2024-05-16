@@ -9,7 +9,8 @@ from inverter import Inverter, ObjectiveTerm
 import invert_utils
 import time
 import wandb
-from gnn import GNN
+import numpy as np
+from gnn import GNN  # noqa: F401
 
 
 def convert_inputs(X, A):
@@ -29,6 +30,7 @@ print("Number of Node Features", dataset.num_node_features)
 if args.init_with_data:
     print(f"Initializing from dataset graph with {args.num_nodes} nodes")
     init_graph = dataset.get_random_graph(args.max_class, num_nodes=args.num_nodes)
+    args.num_nodes = init_graph.num_nodes
 else:
     print("Initializing with dummy graph")
     init_graph = dataset.dummy_graph(args.num_nodes)
@@ -98,19 +100,6 @@ inverter.encode_seq_nn(
 )
 
 run_data.update(inverter.bounds_summary())
-
-# print("Objective: All Pairwise Distances")
-# inverter.model.setObjective(
-#     sum(
-#         (inverter.output_vars["Output"][0, i] - inverter.output_vars["Output"][0, j])
-#         * (inverter.output_vars["Output"][0, i] - inverter.output_vars["Output"][0, j])
-#         for i in range(1, dataset.num_classes)
-#         for j in range(i)
-#     ),
-#     GRB.MINIMIZE,
-# )
-
-# next_class = args.max_class + 1 if args.max_class < dataset.num_classes - 1 else 0
 
 # List of decision variables representing the logits that are not the args.max_class logit
 other_outputs_vars = [
