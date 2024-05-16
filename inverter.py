@@ -236,13 +236,13 @@ class Inverter:
                 # Save the information to a dictionary
                 self.mip_data.append(
                     {
-                        "ObjBound": model.cbGet(GRB.Callback.MIP_OBJBND),
-                        "BestBound": model.cbGet(GRB.Callback.MIP_OBJBST),
-                        "NodeCount": model.cbGet(GRB.Callback.MIP_NODCNT),
-                        "ExploredNodeCount": model.cbGet(GRB.Callback.MIP_NODCNT),
-                        "UnexploredNodeCount": model.cbGet(GRB.Callback.MIP_NODLFT),
-                        "CutCount": model.cbGet(GRB.Callback.MIP_CUTCNT),
-                        "WorkUnits": model.cbGet(GRB.Callback.WORK),
+                        "Upper Bound": model.cbGet(GRB.Callback.MIP_OBJBND),
+                        "Best Objective": model.cbGet(GRB.Callback.MIP_OBJBST),
+                        "Node Count": model.cbGet(GRB.Callback.MIP_NODCNT),
+                        "Explored Node Count": model.cbGet(GRB.Callback.MIP_NODCNT),
+                        "Unexplored Node Count": model.cbGet(GRB.Callback.MIP_NODLFT),
+                        "Cut Count": model.cbGet(GRB.Callback.MIP_CUTCNT),
+                        "Work Units": model.cbGet(GRB.Callback.WORK),
                         "Runtime": runtime,
                     }
                 )
