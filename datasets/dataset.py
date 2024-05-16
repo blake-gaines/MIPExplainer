@@ -19,7 +19,7 @@ class Dataset(torch.utils.data.Dataset, ABC):
     root = "data"
     node_feature_type = "constant"
 
-    def __init__(self, *, dtype=torch.float32, seed=7):
+    def __init__(self, *, dtype=torch.float32, seed=None):
         self.dtype = dtype
         self.seed = seed
         self._seed_all(seed)
