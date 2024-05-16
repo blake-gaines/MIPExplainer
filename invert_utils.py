@@ -721,8 +721,16 @@ def canonicalize_graph(data):
     # label_mapping = {node: i for i, node in enumerate(sorted_nodes)}
 
     unindexed_nodes = set(G.nodes)
-    first_node = unindexed_nodes.pop()
-    # print("First Node:", first_node)
+    # first_node = unindexed_nodes.pop()
+    # Set the first node to be the one with the highest lexicographic ordering
+    F = data.x.shape[1]
+    first_node = np.argmax(
+        [
+            sum(2 ** (F - f - 1) * data.x[i, f] for f in range(F)).item()
+            for i in range(G.number_of_nodes())
+        ]
+    )
+    unindexed_nodes.remove(first_node)
     s = 1
     label_mapping = {first_node: 0}
     while s < len(G.nodes):
