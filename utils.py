@@ -55,7 +55,12 @@ def parse_args():
     )
     parser.add_argument("--no-log", dest="log", action="store_false")
     parser.add_argument(
-        "--tags", action="extend", nargs="+", type=str, help="Add tags for the run"
+        "--tags",
+        action="extend",
+        nargs="+",
+        type=str,
+        help="Add tags for the run",
+        default=[],
     )
 
     return parser.parse_args()
@@ -73,12 +78,13 @@ def setup():
             wandb.save(args.param_file, policy="now")
         wandb.run.log_code(".")
 
-    if args.output_file is not None:
-        args.output_file = args.output_file
-    elif args.log:
-        args.output_file = f"results/runs_masks/{wandb.run.id}.pkl"
+    if args.output_file is not None and os.path.isfile(args.output_file):
+        pass
+    elif args.log and args.output_file is not None:
+        args.output_file = f"results/{args.output_file}/{wandb.run.id}.pkl"
     else:
         args.output_file = "./results/results.pkl"
+
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
 
     if args.log:
