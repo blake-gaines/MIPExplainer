@@ -3,6 +3,7 @@ import torch
 from datasets import get_dataset
 from gnn import GNN  # noqa: F401
 import os
+import matplotlib.pyplot as plt
 
 
 def parse_args():
@@ -81,9 +82,9 @@ def setup():
     if args.output_file is not None and os.path.isfile(args.output_file):
         pass
     elif args.log and args.output_file is not None:
-        args.output_file = f"results/{args.output_file}/{wandb.run.id}.pkl"
+        args.output_file = f"{args.output_file}/{wandb.run.id}.pkl"
     else:
-        args.output_file = "./results/results.pkl"
+        args.output_file = "./results.pkl"
 
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
 
@@ -135,7 +136,7 @@ def get_logging_callback(args, inverter, draw_function=None):
                 commit=False,
             )
             wandb.log({"fig": wandb.Image(fig)}, commit=False)
-            # plt.close()
         wandb.log(data)
+        plt.close()
 
     return logging_callback
