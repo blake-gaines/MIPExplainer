@@ -39,6 +39,7 @@ class Inverter:
         self.verbose = verbose
 
         self.m = gp.Model(model_name, env)
+        self.m.setAttr("ModelSense", self.optimization_sense)
         self.model = self.m
         self.output_vars = OrderedDict()
         self.objective = 0
