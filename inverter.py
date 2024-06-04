@@ -263,6 +263,10 @@ class Inverter:
         #     self.objective += term.var * term.weight
         # self.m.setObjective(self.objective, GRB.MAXIMIZE)
 
+    def reset_objective(self):
+        self.objective_terms = dict()
+        self.m.setObjective(0, self.optimization_sense)  # self.recalculate_objective()
+
     def add_objective_term(self, term):
         if self.verbose:
             print(f"Adding Objective Term: {term.name}")
