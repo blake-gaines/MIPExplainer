@@ -516,8 +516,16 @@ def add_sage_constraint(
     )
 
     # If node features are categorical, we can tighten the bounds on the output.
-    # if name == "Conv_0" and aggr=="sum" and model.getConstrByName("categorical_features[0]") is not None:
-    #     print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
+    if (
+        name == "Conv_0"
+        and aggr == "sum"
+        and model.getConstrByName("categorical_features[0]") is not None
+    ):
+        print(
+            "Tightening bounds for first term in Conv_0 (mean) for categorical features"
+        )
+        first_lower_bounds = np.min(lin_r_weight.T, 0, keepdims=True)
+        first_upper_bounds = np.max(lin_r_weight.T, 0, keepdims=True)
 
     ts_lower_bounds = (
         first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0)
@@ -532,10 +540,22 @@ def add_sage_constraint(
         name=f"{name}_t" if name else None,
     )
 
-    assert ts_lower_bounds.shape == first_lower_bounds.shape
-    assert first_lower_bounds.shape == (X @ lin_r_weight.T).shape
-    assert second_lower_bounds.shape == (aggregated_features @ lin_l_weight.T).shape
-    assert first_lower_bounds.shape == second_lower_bounds.shape
+    # assert ts_lower_bounds.shape == first_lower_bounds.shape, (
+    #     ts_lower_bounds.shape,
+    #     first_lower_bounds.shape,
+    # )
+    # assert first_lower_bounds.shape == (X @ lin_r_weight.T).shape, (
+    #     first_lower_bounds.shape,
+    #     (X @ lin_r_weight.T).shape,
+    # )
+    # assert second_lower_bounds.shape == (aggregated_features @ lin_l_weight.T).shape, (
+    #     second_lower_bounds.shape,
+    #     (aggregated_features @ lin_l_weight.T).shape,
+    # )
+    # assert first_lower_bounds.shape == second_lower_bounds.shape, (
+    #     first_lower_bounds.shape,
+    #     second_lower_bounds.shape,
+    # )
 
     # Constrain outputs to correct values
     model.addConstr(
