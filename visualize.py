@@ -13,6 +13,7 @@ import random
 from torch_geometric.utils import to_dense_adj
 from PIL import Image
 import io
+import matplotlib.pyplot as plt
 
 pio.templates.default = "plotly_white"
 random.seed(0)
@@ -95,7 +96,7 @@ def average_edit_distance(Gs):
 consistency, runtimes, avg_consistency = None, None, None
 for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
 
-    def vis_nx(G):
+    def vis_nx(G, mode="RGBa"):
         A = nx.to_numpy_array(G)
         # X = np.stack([np.eye(datasets[dataset_name].num_node_features)[G.nodes[i]["label"]] for i in G.nodes()])
         if G.number_of_nodes() == 0:
@@ -111,7 +112,10 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
         fig.canvas.draw()
         img = Image.frombytes(
             "RGBa", fig.canvas.get_width_height(), fig.canvas.buffer_rgba()
-        ).convert("RGB")
+        )
+        if mode == "RGB":
+            img = img.convert("RGB")
+        plt.close()
         # img_byte_arr = img_byte_arr.getvalue()
         return img
         # plt.close()
@@ -119,7 +123,8 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
 
     print(f"Processing {dataset_name}")
 
-    gdir = f"./results/old_runs_{dataset_name}/"
+    # gdir = f"./results/old_runs_{dataset_name}/"
+    gdir = "./results/may_runs/"
     d_list = []
     for filename in tqdm(os.listdir(gdir), desc="Loading Run Files"):
         try:
@@ -133,6 +138,8 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
             # del d["mip_information"]
             d["run_id"] = filename.split(".")[0]
             d["max_class_name"] = datasets[d["dataset_name"]].GRAPH_CLS[d["max_class"]]
+            for i in range(datasets[d["dataset_name"]].num_classes):
+                d[f"Output Logit {i}"] = d["solutions"][-1]["Output"][0, i]
             d_list.append(d)
         except Exception as e:
             print(e)
@@ -145,7 +152,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     # %%
     mip_info = None
     for d in d_list:
-        if not d["num_nodes"] == 7 or not d["max_class"] == 1:
+        if not d["num_nodes"] == 7 or not d["max_class"] == 0:
             continue
         m = pd.DataFrame(
             d["mip_information"][:: max(1, len(d["mip_information"]) // 1000)]
@@ -155,108 +162,101 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
             mip_info = m
         else:
             mip_info = pd.concat([mip_info, m], axis=0)
-    mip_info.rename(
-        columns={
-            "Runtime": "Runtime (s)",
-            "BestBound": "Objective Bound",
-            "ObjBound": "Best Objective",
-            "WorkUnits": "Work Units",
-            "ExploredNodeCount": "Explored Node Count",
-            "UnexploredNodeCount": "Unexplored Node Count",
-        },
-        inplace=True,
-    )
-    ## sample 3 run_ids
     # breakpoint()
-    mip_info = mip_info[
-        mip_info["run_id"].isin(random.choices(mip_info["run_id"].unique(), k=3))
-    ]
-    print("Generating Figures")
-    for fname, yaxisname, y_list in [
-        ("convergence", "Objective Value", ["Best Objective", "Objective Bound"]),
-        (
-            "nodecount",
-            "Number of Nodes",
-            ["Explored Node Count", "Unexplored Node Count"],
-        ),
-    ]:
-        fig = px.line(
-            mip_info,
-            x="Runtime (s)",
-            y=y_list,
-            title="",
-            width=700,
-            height=700,
-            log_y=False,  # (fname == "convergence"),
-            facet_row="run_id",
-            color_discrete_sequence=px.colors.qualitative.Plotly
-            if fname == "convergence"
-            else px.colors.qualitative.Dark2,
-        )
-        fig.update_layout(
-            font=dict(
-                family="Nimbus Roman",
-                size=50,
-                color="rgb(82, 82, 82)",
+    if mip_info is not None:
+        mip_info["Runtime (s)"] = mip_info["Runtime"]
+        ## sample 3 run_ids
+        # breakpoint()
+        # mip_info = mip_info[
+        #     mip_info["run_id"].isin(random.choices(mip_info["run_id"].unique(), k=3))
+        # ]
+        mip_info = mip_info[mip_info["run_id"].isin(mip_info["run_id"].unique()[:3])]
+        print("Generating Figures")
+        for fname, yaxisname, y_list in [
+            ("convergence", "Objective Value", ["Best Objective", "Upper Bound"]),
+            (
+                "nodecount",
+                "Number of Nodes",
+                ["Explored Node Count", "Unexplored Node Count"],
             ),
-            legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.01),
-            showlegend=False,
-            autosize=False,
-            margin=dict(
-                autoexpand=True,
-                l=120,
-                r=20,
-                t=20,
-            ),
-        )
-        fig.update_xaxes(
-            ticks="outside",
-            # range=[0, mip_info["Runtime (s)"].max()],
-            tickfont=dict(
-                size=24,
-                color="rgb(82, 82, 82)",
-            ),
-        )
-        fig.update_yaxes(
-            title="",
-            # range=[mip_info[y_list].min().min(), mip_info[y_list].max().max()],
-            # dtick=2,
-            tickfont=dict(
-                size=24,
-                color="rgb(82, 82, 82)",
-            ),
-        )
-        fig.update_layout(legend_title_text="Legend")
-        # Save figure
-        fig.for_each_annotation(lambda a: a.update(text=""))
-        fig.for_each_yaxis(lambda y: y.update(title=""))
-        # and:
-        fig.add_annotation(
-            x=-0.13,
-            y=0.5,
-            text=yaxisname,
-            textangle=-90,
-            xref="paper",
-            yref="paper",
-            font=dict(
-                family="Nimbus Roman",
-                size=55,
-                color="rgb(82, 82, 82)",
-            ),
-        )
-        if fname == "convergence":
-            fig.add_hline(
-                y=mip_info["Best Objective"].max(),
-                line_dash="dot",
-                line_color="black",
-                annotation_position="bottom right",
-                annotation_text="",
+        ]:
+            fig = px.line(
+                mip_info,
+                x="Runtime (s)",
+                y=y_list,
+                title="",
+                width=700,
+                height=700,
+                log_y=False,  # (fname == "convergence"),
+                facet_row="run_id",
+                color_discrete_sequence=px.colors.qualitative.Plotly
+                if fname == "convergence"
+                else px.colors.qualitative.Dark2,
             )
-        fig.update_yaxes(matches=None)
-        fig.write_image(
-            f"./results/figures/{fname}_{d['dataset_name']}_class_{d['max_class']}_n_7.png",
-            format="png",
-        )
+            fig.update_layout(
+                font=dict(
+                    family="Nimbus Roman",
+                    size=40,
+                    color="rgb(0, 0, 0)",
+                ),
+                legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.01),
+                showlegend=False,
+                autosize=False,
+                margin=dict(
+                    autoexpand=True,
+                    l=120,
+                    r=20,
+                    t=20,
+                ),
+            )
+            fig.update_xaxes(
+                ticks="outside",
+                # range=[0, mip_info["Runtime (s)"].max()],
+                tickfont=dict(
+                    size=24,
+                    color="rgb(0, 0, 0)",
+                ),
+            )
+            fig.update_yaxes(
+                title="",
+                # range=[mip_info[y_list].min().min(), mip_info[y_list].max().max()],
+                # dtick=2,
+                tickfont=dict(
+                    size=24,
+                    color="rgb(0, 0, 0)",
+                ),
+            )
+            fig.update_layout(legend_title_text="Legend")
+            # Save figure
+            fig.for_each_annotation(lambda a: a.update(text=""))
+            fig.for_each_yaxis(lambda y: y.update(title=""))
+            # and:
+            fig.add_annotation(
+                x=-0.13,
+                y=0.5,
+                text=yaxisname,
+                textangle=-90,
+                xref="paper",
+                yref="paper",
+                font=dict(
+                    family="Nimbus Roman",
+                    size=55,
+                    color="rgb(0, 0, 0)",
+                ),
+            )
+            if fname == "convergence":
+                fig.add_hline(
+                    y=mip_info["Best Objective"].max(),
+                    line_dash="dot",
+                    line_color="black",
+                    annotation_position="bottom right",
+                    annotation_text="",
+                )
+            fig.update_yaxes(matches=None)
+            fig.write_image(
+                f"./results/figures/{fname}_{d['dataset_name']}_class_0_n_7.png",
+                format="png",
+            )
 
     index_names = ["dataset_name", "max_class", "num_nodes", "method"]
 
@@ -302,8 +302,8 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
         lambda x: create_graph(to_dense_adj(x.edge_index).squeeze(), x.x)
     )
     print(page_df.groupby(index_names).count())
-    if dataset_name == "Shapes_Ones":
-        breakpoint()
+    # if dataset_name == "Shapes_Ones":
+    #     breakpoint()
     page_df = page_df.groupby(index_names, group_keys=False).apply(
         lambda x: x.sample(5, random_state=0)
     )  # TODO:: Move this to the whole df
@@ -326,9 +326,10 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
         }
     )
     df["max_class"] = df["max_class"].map(datasets[dataset_name].GRAPH_CLS)
+    # breakpoint()
     df.rename(
         columns={
-            f"Output Logit {i}": f"{datasets[dataset_name].GRAPH_CLS[i]} Output Logit"
+            f"Output Logit {i}": f"{datasets[dataset_name].GRAPH_CLS[i]} Logit"
             for i in range(datasets[dataset_name].num_classes)
         },
         inplace=True,
@@ -341,8 +342,10 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     worksheet = writer.sheets["Sheet1"]
     img_col = worksheet.dim_colmax + 1
 
+    df = df.set_index(index_names).sort_index()
+
     for i in range(len(df)):
-        img = vis_nx(df["G"].iloc[i])
+        img = vis_nx(df["G"].iloc[i], mode="RGB")
         img = img.resize((img.size[0] // 5, img.size[1] // 5))
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format="PNG")
@@ -355,14 +358,13 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     worksheet.autofit()
     writer.close()
 
-    df = df.set_index(index_names).sort_index()
     df["Image"] = df["G"].map(vis_nx)
     df.to_pickle(f"results/all_{dataset_name}.pkl")
 
     # breakpoint()
 
     # %%
-    a = df[[c for c in df.columns if "Output Logit" in c][:4]]
+    a = df[[c for c in df.columns if "Logit" in c][:4]]
     # a = a.div(a.sum(axis=1)**2, axis=0)
     logit_table = a.groupby(index_names).mean()
     logit_std_table = a.groupby(index_names).std()
