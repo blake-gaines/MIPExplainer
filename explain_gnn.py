@@ -81,10 +81,6 @@ elif dataset.node_feature_type == "constant":
         1,
         vtype=GRB.BINARY,
     )
-    # X = m.addMVar(
-    #     (args.num_nodes, dataset.num_node_features), vtype=GRB.BINARY, name="X"
-    # )
-    # m.addConstr(X == 1, name="features_are_ones")
 else:
     print("Adding Continuous Features")
     X = m.addMVar(
@@ -105,108 +101,85 @@ inverter.encode_seq_nn(
     debug=False,
     max_bound=None,
 )
+inverter.m.update()
 
 bounds_summary = inverter.bounds_summary()
 run_data.update(bounds_summary)
 if args.log:
     wandb.run.summary.update(bounds_summary)
 
-# # List of decision variables representing the logits that are not the args.max_class logit
-# other_outputs_vars = [
-#     inverter.output_vars["Output"][0, j]
-#     for j in range(dataset.num_classes)
-#     if j != args.max_class
-# ]
-# other_outputs_max = invert_utils.get_max(
-#     m, other_outputs_vars, name="max_of_other_outputs"
-# )
-
-# inverter.add_objective_term(
-#     ObjectiveTerm(
-#         "Target Class Output", inverter.output_vars["Output"][0, args.max_class]
+# ### Finding Initial Solution ###
+# next_class = (args.max_class + 1) % dataset.num_classes
+# if args.log:
+#     wandb.run.summary["neg_class"] = next_class
+#     wandb.run.name = (
+#         dataset.GRAPH_CLS[args.max_class].lower()
+#         + "-"
+#         + dataset.GRAPH_CLS[next_class].lower()
+#         + "-"
+#         + wandb.run.id[-4:]
 #     )
-# )
 
-if args.log:
-    wandb.run.name = dataset.GRAPH_CLS[args.max_class].lower() + "-" + wandb.run.id[-4:]
-
-next_class = (args.max_class + 1) % 4  # dataset.num_classes
-if args.log:
-    wandb.run.summary["neg_class"] = next_class
-    wandb.run.name = (
-        dataset.GRAPH_CLS[args.max_class].lower()
-        + "-"
-        + dataset.GRAPH_CLS[next_class].lower()
-        + "-"
-        + wandb.run.id[-4:]
-    )
-
-# inverter.add_objective_term(
-#     ObjectiveTerm(
-#         "Next Class Output", inverter.output_vars["Output"][0, next_class], weight=-1
+# inverter.model.setObjective(
+#     (
+#         inverter.output_vars["Output"][0, args.max_class]
+#         - inverter.output_vars["Output"][0, next_class]
 #     )
+#     * (
+#         inverter.output_vars["Output"][0, args.max_class]
+#         - inverter.output_vars["Output"][0, next_class]
+#     ),
+#     sense=GRB.MINIMIZE,
 # )
 
-inverter.model.setObjective(
-    (
-        inverter.output_vars["Output"][0, args.max_class]
-        - inverter.output_vars["Output"][0, next_class]
-    )
-    * (
-        inverter.output_vars["Output"][0, args.max_class]
-        - inverter.output_vars["Output"][0, next_class]
-    ),
-    sense=GRB.MINIMIZE,
-)
+# inverter.model.update()
 
-inverter.model.update()
+# print("Objective:", inverter.model.getObjective())
 
-print("Objective:", inverter.model.getObjective())
-
-solve_data = inverter.solve(
-    callback=utils.get_logging_callback(args, inverter, dataset.draw_graph)
-    if args.log
-    else None,
-    TimeLimit=round(3600 * 0.01),
-    param_file=args.param_file,
-)
-
-new_init_X = inverter.solutions[-1]["X"]
-new_init_A = inverter.solutions[-1]["A"]
-# distance = abs(
-#     inverter.solutions[-1]["Output"][:, args.max_class]
-#     - inverter.solutions[-1]["Output"][:, next_class]
+# solve_data = inverter.solve(
+#     callback=utils.get_logging_callback(args, inverter, dataset.draw_graph)
+#     if args.log
+#     else None,
+#     TimeLimit=round(3600 * 0.01),
+#     param_file=args.param_file,
 # )
 
-distance = 0.1  # TODO: Move to args
-if args.log:
-    wandb.config["distance"] = distance
-assert (
-    abs(
-        inverter.solutions[-1]["Output"][:, args.max_class]
-        - inverter.solutions[-1]["Output"][:, next_class]
-    )
-    <= distance
-)
+# new_init_X = inverter.solutions[-1]["X"]
+# new_init_A = inverter.solutions[-1]["A"]
 
-print("Constraining Distance Max:", distance)
-# Constrain args.max_class and next_class logits to be close
-m.addConstr(
-    inverter.output_vars["Output"][0, args.max_class]
-    - inverter.output_vars["Output"][0, next_class]
-    <= distance,
-    name="target_class_closeness_1",
-)
-m.addConstr(
-    inverter.output_vars["Output"][0, next_class]
-    - inverter.output_vars["Output"][0, args.max_class]
-    <= distance,
-    name="target_class_closeness_2",
-)
+# # distance = abs(inverter.solutions[-1]["Output"][:, args.max_class] - inverter.solutions[-1]["Output"][:, next_class])
+# distance = 0.1  # TODO: Move to args
 
-inverter.encode_seq_nn({"X": new_init_X, "A": new_init_A}, add_layers=False)
+# if args.log:
+#     wandb.config["distance"] = distance
+# assert (
+#     abs(
+#         inverter.solutions[-1]["Output"][:, args.max_class]
+#         - inverter.solutions[-1]["Output"][:, next_class]
+#     )
+#     <= distance
+# )
 
-inverter.reset_objective()
+# print("Constraining Distance Max:", distance)
+# ## Constrain args.max_class and next_class logits to be close
+# m.addConstr(
+#     inverter.output_vars["Output"][0, args.max_class]
+#     - inverter.output_vars["Output"][0, next_class]
+#     <= distance,
+#     name="target_class_closeness_1",
+# )
+# m.addConstr(
+#     inverter.output_vars["Output"][0, next_class]
+#     - inverter.output_vars["Output"][0, args.max_class]
+#     <= distance,
+#     name="target_class_closeness_2",
+# )
+
+# inverter.encode_seq_nn({"X": new_init_X, "A": new_init_A}, add_layers=False)
+
+# inverter.reset_objective()
+
+### Main Solve ###
 
 # other_outputs_vars = [
 #     inverter.output_vars["Output"][0, j]
@@ -225,16 +198,38 @@ inverter.reset_objective()
 #     )
 # )
 
+# inverter.add_objective_term(
+#     ObjectiveTerm(
+#         "Target Class Output", inverter.output_vars["Output"][0, args.max_class]
+#     )
+# )
 
-inverter.add_objective_term(
-    ObjectiveTerm(
-        "Target Class Output", inverter.output_vars["Output"][0, args.max_class]
-    )
-)
+# if args.log:
+#     wandb.run.name = dataset.GRAPH_CLS[args.max_class].lower() + "-" + wandb.run.id[-4:]
+
+# inverter.add_objective_term(
+#     ObjectiveTerm(
+#         "Next Class Output", inverter.output_vars["Output"][0, next_class], weight=-1
+#     )
+# )
+
+# # List of decision variables representing the logits that are not the args.max_class logit
+# other_outputs_vars = [
+#     inverter.output_vars["Output"][0, j]
+#     for j in range(dataset.num_classes)
+#     if j != args.max_class
+# ]
+# other_outputs_max = invert_utils.get_max(
+#     m, other_outputs_vars, name="max_of_other_outputs"
+# )
 
 # inverter.add_objective_term(
 #     ObjectiveTerm("Max Non-Target Class Output", other_outputs_max, weight=-1)
 # )
+
+inverter.model.setObjective(-gp.quicksum(inverter.output_vars["Output"][0, :4]))
+
+inverter.model.update()
 
 print("Objective:", inverter.model.getObjective())
 
@@ -252,7 +247,7 @@ solve_data = inverter.solve(
     if args.log
     else None,
     param_file=args.param_file,
-    TimeLimit=round(3600 * 5),
+    TimeLimit=round(3600 * 3),
 )
 
 # if m.Status in [3, 4]:  # If the model is infeasible, see why
