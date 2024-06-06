@@ -54,6 +54,7 @@ def parse_args():
     parser.add_argument(
         "--mask_index", type=int, help="Index of mask to be applied to the graph"
     )
+    parser.add_argument("--budget", type=int, help="Edge Budget", default=1)
     parser.add_argument("--no-log", dest="log", action="store_false")
     parser.add_argument(
         "--tags",
@@ -128,13 +129,23 @@ def get_logging_callback(args, inverter, draw_function=None):
         key, data = r
         if key == "Solution" and args.log:
             fig, _ = draw_function(A=data["A"], X=data["X"])
-            wandb.log(
-                {
-                    f"Output Logit {i}": data["Output"].squeeze()[i]
-                    for i in range(data["Output"].shape[1])
-                },
-                commit=False,
-            )
+            if data["Output"].shape[1] == 1:
+                wandb.log(
+                    {
+                        f"Output Logit {i}": data["Output"].squeeze()[i]
+                        for i in range(data["Output"].shape[1])
+                    },
+                    commit=False,
+                )
+            else:
+                for j in range(data["Output"].shape[0]):
+                    wandb.log(
+                        {
+                            f"Graph {j} Output Logit {i}": data["Output"][j][i]
+                            for i in range(data["Output"].shape[1])
+                        },
+                        commit=False,
+                    )
             wandb.log({"fig": wandb.Image(fig)}, commit=False)
         wandb.log(data)
         plt.close()

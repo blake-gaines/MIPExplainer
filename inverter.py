@@ -310,7 +310,7 @@ class Inverter:
         return summary
 
     def encode_seq_nn(
-        self, input_inits=None, add_layers=True, debug=False, max_bound=None
+        self, input_inits=None, add_layers=True, debug=False, max_bound=None, **kwargs
     ):
         if self.verbose:
             print("Encoding NN")
@@ -329,6 +329,7 @@ class Inverter:
             if self.verbose:
                 print("    Setting Warm Start")
             for var_name, init_value in input_inits.items():
+                # breakpoint()
                 self.input_vars[var_name].Start = init_value
                 if debug:
                     fixing_constraints.append(
@@ -360,6 +361,7 @@ class Inverter:
                     A=self.input_vars[
                         "A"
                     ],  ## TODO: Generalize to arbitrary side information
+                    **kwargs,
                 )
                 self.model.update()
                 if max_bound is not None:
@@ -394,7 +396,11 @@ class Inverter:
                 previous_layer_output = self.output_vars[name]
             if input_inits is not None:
                 output = all_layer_outputs[name].detach().numpy()
-                assert self.output_vars[name].shape == output.shape
+                # breakpoint()
+                assert self.output_vars[name].shape == output.shape, (
+                    self.output_vars[name].shape,
+                    output.shape,
+                )
                 if not np.less_equal(
                     previous_layer_output.getAttr("lb"), output + 1e-8
                 ).all():

@@ -47,10 +47,8 @@ def get_matmul_bounds(V, W):
 def add_fc_constraint(model, X, W, b, name=None):
     model.update()
     lower_bounds, upper_bounds = get_matmul_bounds(X, W.T)
-    # if name == "fc2":
-    #     breakpoint()
     ts = model.addMVar(
-        (1, W.shape[0]),
+        (X.shape[0], W.shape[0]),
         lb=lower_bounds + b,
         ub=upper_bounds + b,
         name=f"{name}_t" if name else None,
@@ -604,20 +602,51 @@ def global_add_pool(model, X, name=None, **kwargs):
     return sums[np.newaxis, :]
 
 
-def global_mean_pool(model, X, name=None, **kwargs):
+def global_mean_pool(model, X, name=None, batch=None, **kwargs):
     # Outputs variables constrained to the mean of node features element-wise
     model.update()
+    if batch is None:
+        batch = [0] * X.shape[0]
+    num_graphs = batch[-1] + 1
     averages = model.addMVar(
-        (X.shape[1],),
-        lb=X.getAttr("lb").mean(axis=0),
-        ub=X.getAttr("ub").mean(axis=0),
+        (num_graphs, X.shape[1]),
         name=name,
     )
-    model.addConstr(
-        averages == gp.quicksum(X) / X.shape[0],
-        name=f"{name}_constraint" if name else None,
-    )
-    return averages[np.newaxis, :]
+    # model.addConstr(
+    #     averages == gp.quicksum(X) / X.shape[0],
+    #     name=f"{name}_constraint" if name else None,
+    # )
+    # return averages[np.newaxis, :]
+
+    for i in range(num_graphs):
+        graph_vars = [X[j] for j in range(X.shape[0]) if batch[j] == i]
+        model.addConstr(
+            averages[i] == gp.quicksum(graph_vars) / len(graph_vars),
+            name=f"{name}_constraint_{i}" if name else None,
+        )
+        averages[i].setAttr(
+            "lb", sum(v.getAttr("lb") for v in graph_vars) / len(graph_vars)
+        )
+        averages[i].setAttr(
+            "ub", sum(v.getAttr("ub") for v in graph_vars) / len(graph_vars)
+        )
+    return averages
+
+
+# def global_mean_pool(model, X, name=None, **kwargs):
+#     # Outputs variables constrained to the mean of node features element-wise
+#     model.update()
+#     averages = model.addMVar(
+#         (X.shape[1],),
+#         lb=X.getAttr("lb").mean(axis=0),
+#         ub=X.getAttr("ub").mean(axis=0),
+#         name=name,
+#     )
+#     model.addConstr(
+#         averages == gp.quicksum(X) / X.shape[0],
+#         name=f"{name}_constraint" if name else None,
+#     )
+#     return averages[np.newaxis, :]
 
 
 def torch_fc_constraint(model, X, layer, name=None, max_output=None, **kwargs):
