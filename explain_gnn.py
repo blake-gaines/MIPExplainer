@@ -5,11 +5,11 @@ from torch_geometric.utils import to_dense_adj, dense_to_sparse
 from torch_geometric.data import Data
 import pickle
 import utils
-from inverter import Inverter, ObjectiveTerm
+from inverter import Inverter, ObjectiveTerm  # noqa: F401
 import invert_utils
 import time
 import wandb
-import numpy as np
+import numpy as np  # noqa: F401
 from gnn import GNN  # noqa: F401
 
 

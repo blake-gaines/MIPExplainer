@@ -164,7 +164,13 @@ class GraphDataset(Dataset):
                 "Supply adjacency matrix or edge list or nx graph for visualization."
             )
 
-        pos = nx.spring_layout(G, seed=7, iterations=100)
+        pos = nx.spring_layout(
+            G,
+            seed=7,
+            iterations=100,
+            k=nx.number_connected_components(G) ** 1.5 / np.sqrt(G.number_of_nodes()),
+            scale=nx.number_connected_components(G) ** 2,
+        )
         labels, node_color = None, None
 
         if X is not None:
@@ -197,7 +203,7 @@ class GraphDataset(Dataset):
             labels=labels,
             node_color=node_color,
             ax=ax,
-            node_size=800,
+            node_size=500,
             font_size=18,
             **kwargs,
         )
