@@ -22,11 +22,8 @@ print("Number of Node Features", dataset.num_node_features)
 
 batch_size = 2
 
-try:
-    init_graph_comp = dataset.get_random_graph(args.max_class, num_nodes=args.num_nodes)
-except Exception:
-    print("Failed to get random graph, creating dummy graph instead.")
-    init_graph_comp = dataset.dummy_graph(args.num_nodes)
+init_graph_comp = dataset.dummy_graph(args.num_nodes)
+# init_graph_comp = dataset.get_random_graph(args.max_class, num_nodes=args.num_nodes)
 
 init_graphs = []
 for b in range(batch_size):
@@ -178,18 +175,12 @@ other_outputs_vars_1 = [
     inverter.output_vars["Output"][1, j].item() for j in range(dataset.num_classes) if j != args.max_class
 ]
 max_of_outputs_1 = invert_utils.get_max(m, other_outputs_vars_1, name="max_of_outputs_1")
-m.addConstr(
-    max_of_outputs_1 <= inverter.output_vars["Output"][1, args.max_class].item(),
-    name="Graph_1_Predicts_Correctly",
-)
-if args.log:
-    wandb.run.tags += ("fixed-prediction",)
 
 # m.addConstr(gp.quicksum((As[1].reshape((-1,)) - As[0].reshape((-1,)))) <= args.budget)
 # m.addConstr(As[1] - As[0] >= 0)
 m.addConstr(
     gp.quicksum(
-        (As[1][i, j] - As[0][i, j]) * (As[1][i, j] - As[0][i, j]) for i in range(1, args.num_nodes) for j in range(i)
+        (As[1][i, j] - As[0][i, j]) * (As[1][i, j] - As[0][i, j]) for i in range(args.num_nodes) for j in range(i)
     )
     <= args.budget,
     name="A_Distance_Budget",

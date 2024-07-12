@@ -48,12 +48,8 @@ def parse_args():
         default="./tune0.prm",
         help="Name of file containing solver parameters",
     )
-    parser.add_argument(
-        "--log", action="store_true", help="Log the run with Weights & Biases"
-    )
-    parser.add_argument(
-        "--mask_index", type=int, help="Index of mask to be applied to the graph"
-    )
+    parser.add_argument("--log", action="store_true", help="Log the run with Weights & Biases")
+    parser.add_argument("--mask_index", type=int, help="Index of mask to be applied to the graph")
     parser.add_argument("--budget", type=int, help="Edge Budget", default=1)
     parser.add_argument("--no-log", dest="log", action="store_false")
     parser.add_argument(
@@ -97,9 +93,7 @@ def setup():
         wandb.run.tags += tuple(args.tags)
 
     args.device = (
-        args.device
-        if args.device is not None
-        else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        args.device if args.device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     )
     if not args.model_path:
         args.model_path = f"models/{args.dataset_name}_model.pth"
@@ -127,26 +121,30 @@ def get_logging_callback(args, inverter, draw_function=None):
         if r is None:
             return
         key, data = r
-        if key == "Solution" and args.log:
-            fig, _ = draw_function(A=data["A"], X=data["X"])
-            if data["Output"].shape[1] == 1:
-                wandb.log(
-                    {
-                        f"Output Logit {i}": data["Output"].squeeze()[i]
-                        for i in range(data["Output"].shape[1])
-                    },
-                    commit=False,
-                )
-            else:
-                for j in range(data["Output"].shape[0]):
+        if args.log and key == "Solution":
+            if data["Divergence"] < 1e-4:
+                if data["Output"].shape[1] == 1:
                     wandb.log(
-                        {
-                            f"Graph {j} Output Logit {i}": data["Output"][j][i]
-                            for i in range(data["Output"].shape[1])
-                        },
+                        {f"Output Logit {i}": data["Output"].squeeze()[i] for i in range(data["Output"].shape[1])},
                         commit=False,
                     )
-            wandb.log({"fig": wandb.Image(fig)}, commit=False)
+                else:
+                    for j in range(data["Output"].shape[0]):
+                        wandb.log(
+                            {
+                                f"Graph {j} Output Logit {i}": data["Output"][j][i]
+                                for i in range(data["Output"].shape[1])
+                            },
+                            commit=False,
+                        )
+                fig = draw_function(A=data["A"], X=data["X"], match_graphs=True)
+                wandb.log({"fig": wandb.Image(fig)}, commit=False)
+                plt.close()
+                fig = draw_function(A=data["A"], X=data["X"], match_graphs=False)
+                wandb.log({"fig2": wandb.Image(fig)}, commit=False)
+                plt.close()
+            else:
+                print("Skipped drawing solution with divergence", data["Divergence"])
         wandb.log(data)
         plt.close()
 

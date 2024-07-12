@@ -460,6 +460,22 @@ def add_relu_constraint(model, X, name=None, **kwargs):
     model.update()
     print("    X UB < 0 COUNT:", np.less(X.getAttr("ub"), 0).sum())
     print("    X LB > 0 COUNT:", np.greater(X.getAttr("lb"), 0).sum())
+
+    # if isinstance(X, gp.MVar):
+    #     ts = model.addMVar(
+    #         X.shape,
+    #         lb=X.getAttr("lb").clip(min=0),
+    #         ub=X.getAttr("ub").clip(min=0),
+    #         name=f"{name}_ts",
+    #     )
+
+    #     X_list = np.array(X.tolist()).flatten()
+    #     t_list = np.array(ts.tolist()).flatten()
+    # else:
+    #     ts = model.addVar(lb=min(0, X.lb), ub=max(0, X.ub), name=f"{name}_t")
+    #     X_list = [X]
+    #     t_list = [ts]
+
     ts = model.addMVar(
         X.shape,
         lb=X.getAttr("lb").clip(min=0),
@@ -719,6 +735,7 @@ def get_l2_distance(model, var, vec, name="l2_distance"):
 
 
 def get_squared_l2_distance(model, var, vec, name="squared_l2_distance"):
+    model.update()
     ub = np.linalg.norm(
         np.maximum(
             var.getAttr("ub").clip(max=0).abs(),
@@ -733,15 +750,36 @@ def get_squared_l2_distance(model, var, vec, name="squared_l2_distance"):
     return squared_l2_distance, lambda newvec: norm(newvec - vec) ** 2
 
 
-def get_max(model, vars, name=None):
+def get_max(model, var_list, name=None):
+    model.update()
     if name is None:
-        name = "max_of_" + sum((v.getAttr("varName") for v in vars), start="")
+        name = "max_of_" + sum((v.getAttr("varName") for v in var_list), start="")
     max_var = model.addVar(
-        lb=max(v.getAttr("lb") for v in vars),
-        ub=max(v.getAttr("ub") for v in vars),
+        lb=max(v.getAttr("lb") for v in var_list),
+        ub=max(v.getAttr("ub") for v in var_list),
+        vtype=var_list[0].vtype
+        if all(v.vtype == var_list[0].vtype for v in var_list)
+        else GRB.CONTINUOUS,
+        name=name,
     )
-    model.addGenConstrMax(max_var, vars, name=f"{name}_constr")
+    model.addGenConstrMax(max_var, var_list, name=f"{name}_constr")
     return max_var
+
+
+def get_min(model, var_list, name=None):
+    model.update()
+    if name is None:
+        name = "min_of_" + sum((v.getAttr("varName") for v in var_list), start="")
+    min_var = model.addVar(
+        lb=min(v.getAttr("lb") for v in var_list),
+        ub=min(v.getAttr("ub") for v in var_list),
+        vtype=var_list[0].vtype
+        if all(v.vtype == var_list[0].vtype for v in var_list)
+        else GRB.CONTINUOUS,
+        name=name,
+    )
+    model.addGenConstrMin(min_var, var_list, name=f"{name}_constr")
+    return min_var
 
 
 def aleqb(a, b):

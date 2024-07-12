@@ -20,10 +20,7 @@ random.seed(0)
 
 # %%
 methods = ["MIPExplainer", "GNNInterpreter", "XGNN", "PAGE"]
-datasets = {
-    dataset_name: get_dataset(dataset_name)
-    for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]
-}
+datasets = {dataset_name: get_dataset(dataset_name) for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]}
 
 replace_d = {
     "runtime": "Runtime (s)",
@@ -104,15 +101,10 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
         X = np.stack([G.nodes[i]["label"] for i in G.nodes()])
         if X.ndim == 1:
             X = np.eye(datasets[dataset_name].num_node_features)[X]
-        assert (
-            X.shape[0] == G.number_of_nodes()
-            and X.shape[1] == datasets[dataset_name].num_node_features
-        )
-        fig, ax = datasets[dataset_name].draw_graph(A=A, X=X)
+        assert X.shape[0] == G.number_of_nodes() and X.shape[1] == datasets[dataset_name].num_node_features
+        fig = datasets[dataset_name].draw_graph(A=A, X=X)
         fig.canvas.draw()
-        img = Image.frombytes(
-            "RGBa", fig.canvas.get_width_height(), fig.canvas.buffer_rgba()
-        )
+        img = Image.frombytes("RGBa", fig.canvas.get_width_height(), fig.canvas.buffer_rgba())
         if mode == "RGB":
             img = img.convert("RGB")
         plt.close()
@@ -131,9 +123,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
             d = pickle.load(open(gdir + filename, "rb"))
             if d["dataset_name"] != dataset_name:
                 continue
-            d["mip_information"] = d["mip_information"][
-                :: max(1, len(d["mip_information"]) // 1000)
-            ]
+            d["mip_information"] = d["mip_information"][:: max(1, len(d["mip_information"]) // 1000)]
             # pickle.dump(d, open(gdir+filename, "wb"))
             # del d["mip_information"]
             d["run_id"] = filename.split(".")[0]
@@ -154,9 +144,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     for d in d_list:
         if not d["num_nodes"] == 7 or not d["max_class"] == 0:
             continue
-        m = pd.DataFrame(
-            d["mip_information"][:: max(1, len(d["mip_information"]) // 1000)]
-        )
+        m = pd.DataFrame(d["mip_information"][:: max(1, len(d["mip_information"]) // 1000)])
         m["run_id"] = d["run_id"]
         if mip_info is None:
             mip_info = m
@@ -266,41 +254,30 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
             {
                 key: value
                 for key, value in d.items()
-                if isinstance(value, numbers.Number)
-                or key in {"run_id", "dataset_name"}
+                if isinstance(value, numbers.Number) or key in {"run_id", "dataset_name"}
             }
             for d in d_list
         ]
     )
 
-    mipexplainer_df["G"] = [
-        create_graph(d["solutions"][-1]["A"], d["solutions"][-1]["X"]) for d in d_list
-    ]
-    mipexplainer_df["init_G"] = [
-        create_graph(d["solutions"][0]["A"], d["solutions"][0]["X"]) for d in d_list
-    ]
+    mipexplainer_df["G"] = [create_graph(d["solutions"][-1]["A"], d["solutions"][-1]["X"]) for d in d_list]
+    mipexplainer_df["init_G"] = [create_graph(d["solutions"][0]["A"], d["solutions"][0]["X"]) for d in d_list]
     mipexplainer_df["method"] = "MIPExplainer"
 
     mipexplainer_df = mipexplainer_df[mipexplainer_df["dataset_name"] == dataset_name]
 
     # %%
-    gnninterpreter_df = pd.DataFrame(
-        pickle.load(open(f"results/gnninterpreter_{dataset_name}.pkl", "rb"))
-    )
+    gnninterpreter_df = pd.DataFrame(pickle.load(open(f"results/gnninterpreter_{dataset_name}.pkl", "rb")))
     xgnn_df = pd.DataFrame(pickle.load(open(f"results/XGNN_{dataset_name}.pkl", "rb")))
     page_df = pd.DataFrame(pickle.load(open(f"results/PAGE_{dataset_name}.pkl", "rb")))
     if dataset_name == "Shapes_Ones":
         page_df = pd.concat(
             [
                 page_df,
-                pd.DataFrame(
-                    pickle.load(open("results/PAGE_Shapes_Ones_star_reduced.pkl", "rb"))
-                ),
+                pd.DataFrame(pickle.load(open("results/PAGE_Shapes_Ones_star_reduced.pkl", "rb"))),
             ]
         )
-    page_df["G"] = page_df["G"].apply(
-        lambda x: create_graph(to_dense_adj(x.edge_index).squeeze(), x.x)
-    )
+    page_df["G"] = page_df["G"].apply(lambda x: create_graph(to_dense_adj(x.edge_index).squeeze(), x.x))
     print(page_df.groupby(index_names).count())
     # if dataset_name == "Shapes_Ones":
     #     breakpoint()
@@ -336,9 +313,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     )
 
     writer = pd.ExcelWriter(f"results/all_{dataset_name}.xlsx", engine="xlsxwriter")
-    df.dropna(axis=1).drop(["G"], axis=1).to_excel(
-        writer, sheet_name="Sheet1", index=False
-    )
+    df.dropna(axis=1).drop(["G"], axis=1).to_excel(writer, sheet_name="Sheet1", index=False)
     worksheet = writer.sheets["Sheet1"]
     img_col = worksheet.dim_colmax + 1
 
@@ -351,9 +326,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
         img.save(img_byte_arr, format="PNG")
         worksheet.set_column_pixels(img_col, img.size[0])
         worksheet.set_row_pixels(i + 1, img.size[1])
-        worksheet.insert_image(
-            i + 1, img_col, f"Index: {i}", {"image_data": img_byte_arr}
-        )
+        worksheet.insert_image(i + 1, img_col, f"Index: {i}", {"image_data": img_byte_arr})
     worksheet.write(0, img_col, "Explanation")
     worksheet.autofit()
     writer.close()
@@ -368,11 +341,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     # a = a.div(a.sum(axis=1)**2, axis=0)
     logit_table = a.groupby(index_names).mean()
     logit_std_table = a.groupby(index_names).std()
-    combined_table = (
-        logit_table.map("{0:.3f}".format)
-        + " $\\pm$ "
-        + logit_std_table.map("{0:.3f}".format)
-    )
+    combined_table = logit_table.map("{0:.3f}".format) + " $\\pm$ " + logit_std_table.map("{0:.3f}".format)
     combined_table = combined_table.reindex(methods, level=3)
     with open(f"results/tables/output_logit_{dataset_name}.tex", "w") as f:
         f.write(replace_all(combined_table.loc[dataset_name].to_latex(index=True)))
@@ -380,21 +349,14 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
         tempdf = pd.DataFrame(combined_table)
         f.write(
             replace_all(
-                tempdf.stack()
-                .unstack(level=tempdf.index.names.index("method"))
-                .loc[dataset_name]
-                .to_latex(index=True)
+                tempdf.stack().unstack(level=tempdf.index.names.index("method")).loc[dataset_name].to_latex(index=True)
             )
         )
 
     # %%
     runtime_table = df.groupby(index_names)["runtime"].mean()
     runtime_std_table = df.groupby(index_names)["runtime"].std()
-    combined_table = (
-        runtime_table.map("{0:.3f}".format)
-        + " $\\pm$ "
-        + runtime_std_table.map("{0:.3f}".format)
-    )
+    combined_table = runtime_table.map("{0:.3f}".format) + " $\\pm$ " + runtime_std_table.map("{0:.3f}".format)
     combined_table = combined_table.reindex(methods, level=3)
     with open(f"results/tables/runtime_{dataset_name}.tex", "w") as f:
         f.write(replace_all(combined_table.loc[dataset_name].to_latex(index=True)))
@@ -407,9 +369,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     # %%
     distances = []
     distances_std = []
-    for name, group in tqdm(
-        df.groupby(index_names)["G"], desc="Calculating Consistency"
-    ):
+    for name, group in tqdm(df.groupby(index_names)["G"], desc="Calculating Consistency"):
         # Save the average edit distance of the group to a df
         group = list(group)
         m, std = average_edit_distance(group)
@@ -418,11 +378,7 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
     distances_df = pd.DataFrame(distances).set_index(index_names).sort_index()
     distances_std_df = pd.DataFrame(distances_std).set_index(index_names).sort_index()
 
-    combined_table = (
-        distances_df.map("{0:.3f}".format)
-        + " $\\pm$ "
-        + distances_std_df.map("{0:.3f}".format)
-    )
+    combined_table = distances_df.map("{0:.3f}".format) + " $\\pm$ " + distances_std_df.map("{0:.3f}".format)
     combined_table = combined_table.reindex(methods, level=3)
     # %%
     with open(f"results/tables/consistency_{dataset_name}.tex", "w") as f:
@@ -435,17 +391,11 @@ for dataset_name in ["MUTAG", "Is_Acyclic_Ones", "Shapes_Ones"]:
 
     # %%
     # Average over num_nodes
-    averaged_distances_df = distances_df.groupby(
-        ["dataset_name", "max_class", "method"]
-    ).mean()  # .loc[dataset_name]
-    averaged_distances_df_std = distances_df.groupby(
-        ["dataset_name", "max_class", "method"]
-    ).std()
+    averaged_distances_df = distances_df.groupby(["dataset_name", "max_class", "method"]).mean()  # .loc[dataset_name]
+    averaged_distances_df_std = distances_df.groupby(["dataset_name", "max_class", "method"]).std()
 
     combined_table = (
-        averaged_distances_df.map("{0:.2}".format)
-        + " $\\pm$ "
-        + averaged_distances_df_std.map("{0:.2f}".format)
+        averaged_distances_df.map("{0:.2}".format) + " $\\pm$ " + averaged_distances_df_std.map("{0:.2f}".format)
     )
     combined_table = combined_table.reindex(methods, level=2)
     with open(f"results/tables/averaged_consistency_{dataset_name}.tex", "w") as f:
@@ -464,10 +414,4 @@ for name, table in zip(
         f.write(replace_all(table.to_latex(index=True)))
     with open(f"results/tables/{name}_flipped.tex", "w") as f:
         tempdf = pd.DataFrame(table)
-        f.write(
-            replace_all(
-                tempdf.unstack(level=tempdf.index.names.index("method")).to_latex(
-                    index=True
-                )
-            )
-        )
+        f.write(replace_all(tempdf.unstack(level=tempdf.index.names.index("method")).to_latex(index=True)))
