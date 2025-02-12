@@ -20,6 +20,18 @@ def get_dataset(name):
         from .MNISTSuperpixels import MNISTSuperpixels_dataset
 
         dataset = MNISTSuperpixels_dataset()
+    elif name == "NCI1":
+        from .GExp import NCI1_dataset
+
+        dataset = NCI1_dataset()
+    elif name == "IMDB-BINARY":
+        from .IMDB_BINARY import IMDB_Binary_dataset
+
+        dataset = IMDB_Binary_dataset()
+    elif name == "REDDIT-BINARY":
+        from .REDDIT_BINARY import Reddit_Binary_dataset
+
+        dataset = Reddit_Binary_dataset()
     else:
         raise ValueError(f"No dataset with the name '{name}' was found")
     return dataset

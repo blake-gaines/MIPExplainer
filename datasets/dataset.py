@@ -12,7 +12,6 @@ import random
 from torch_geometric.utils import dense_to_sparse
 from torch_geometric.data import Data
 from sklearn.model_selection import train_test_split
-import os
 
 
 def isonleft(a, b, c):
@@ -111,7 +110,7 @@ class Dataset(torch.utils.data.Dataset, ABC):
     def __getitem__(self, key):
         if isinstance(key, int):
             return self.data[key]
-        elif type(key) == tuple and len(key) == 2:
+        elif isinstance(key, tuple) and len(key) == 2:
             pass
 
     def __iter__(self):
@@ -289,7 +288,7 @@ class GraphDataset(Dataset):
         adj = torch.Tensor(adj)
         return adj
 
-    def dummy_graph(self, num_nodes):
+    def dummy_graph(self, num_nodes, XA=False):
         adj = self.random_connected_adj(num_nodes)
         if self.node_feature_type == "constant":
             x = torch.ones((num_nodes, self.num_node_features))
@@ -297,4 +296,7 @@ class GraphDataset(Dataset):
             x = torch.eye(self.num_node_features)[torch.randint(self.num_node_features, (num_nodes,))]
         elif self.node_feature_type == "degree":
             x = torch.unsqueeze(torch.sum(adj, dim=-1), dim=-1)
-        return Data(x=x, edge_index=dense_to_sparse(adj)[0])
+        if XA:
+            return x, adj
+        else:
+            return Data(x=x, edge_index=dense_to_sparse(adj)[0])
