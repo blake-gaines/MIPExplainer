@@ -70,9 +70,7 @@ if dataset.node_feature_type == "one-hot":
     invert_utils.s2_constraint(m, X)
 elif dataset.node_feature_type == "degree":
     print("Adding Degree Features")
-    X = invert_utils.get_node_degree_features(
-        m, args.num_nodes, dataset.num_node_features, A
-    )
+    X = invert_utils.get_node_degree_features(m, args.num_nodes, dataset.num_node_features, A)
 elif dataset.node_feature_type == "constant":
     print("Adding Constant Features")
     X = invert_utils.get_constant_features(
@@ -198,11 +196,9 @@ if args.log:
 #     )
 # )
 
-# inverter.add_objective_term(
-#     ObjectiveTerm(
-#         "Target Class Output", inverter.output_vars["Output"][0, args.max_class]
-#     )
-# )
+inverter.add_objective_term(
+    ObjectiveTerm("Target Class Output", inverter.output_vars["Output"][0, args.max_class].item())
+)
 
 # if args.log:
 #     wandb.run.name = dataset.GRAPH_CLS[args.max_class].lower() + "-" + wandb.run.id[-4:]
@@ -213,21 +209,15 @@ if args.log:
 #     )
 # )
 
-# # List of decision variables representing the logits that are not the args.max_class logit
-# other_outputs_vars = [
-#     inverter.output_vars["Output"][0, j]
-#     for j in range(dataset.num_classes)
-#     if j != args.max_class
-# ]
-# other_outputs_max = invert_utils.get_max(
-#     m, other_outputs_vars, name="max_of_other_outputs"
-# )
+# List of decision variables representing the logits that are not the args.max_class logit
+other_outputs_vars = [
+    inverter.output_vars["Output"][0, j].item() for j in range(dataset.num_classes) if j != args.max_class
+]
+other_outputs_max = invert_utils.get_max(m, other_outputs_vars, name="max_of_other_outputs")
 
-# inverter.add_objective_term(
-#     ObjectiveTerm("Max Non-Target Class Output", other_outputs_max, weight=-1)
-# )
+inverter.add_objective_term(ObjectiveTerm("Max Non-Target Class Output", other_outputs_max, weight=-1))
 
-inverter.model.setObjective(-gp.quicksum(inverter.output_vars["Output"][0, :4]))
+# inverter.model.setObjective(-gp.quicksum(inverter.output_vars["Output"][0, :4]))
 
 inverter.model.update()
 
@@ -243,11 +233,9 @@ if args.log:
         wandb.save(fn, policy="now")
 
 solve_data = inverter.solve(
-    callback=utils.get_logging_callback(args, inverter, dataset.draw_graph)
-    if args.log
-    else None,
+    callback=utils.get_logging_callback(args, inverter, dataset.draw_graph) if args.log else None,
     param_file=args.param_file,
-    TimeLimit=round(3600 * 3),
+    TimeLimit=round(3600 * 2),
 )
 
 # if m.Status in [3, 4]:  # If the model is infeasible, see why
