@@ -104,6 +104,10 @@ class Dataset(torch.utils.data.Dataset, ABC):
             raise ValueError("No graphs found with the given parameters.")
         return random.choice(choices)
 
+    def to_pickle(self, filename):
+        with open(filename, "wb") as f:
+            pickle.dump(self.data, f)
+
     def __len__(self):
         return len(self.data)
 
@@ -145,6 +149,7 @@ class GraphDataset(Dataset):
         edge_color=None,
         pos=None,
         match_graphs=True,
+        separate_components=False,
         **kwargs,
     ):
         component_colors = ["skyblue", "darkorange", "forestgreen"]
@@ -173,7 +178,10 @@ class GraphDataset(Dataset):
         ccs.sort(key=lambda cc: cc[0])
         nccs = len(ccs)
 
-        if nccs == 2 and len(ccs[0]) == len(ccs[1]):
+        if not separate_components:
+            ccs = [np.arange(G.number_of_nodes())]
+            nccs = 1
+        elif nccs == 2 and len(ccs[0]) == len(ccs[1]):
             ## Make edge_color red for edges that are different between the two halves of the adjacency matrix
             N = A.shape[0] // 2
             c0, c1 = A[:N, :N], A[N:, N:]
@@ -233,10 +241,11 @@ class GraphDataset(Dataset):
             else:
                 subpos = pos
 
-            if len(ccs) > 1:
-                node_color = [component_colors[j]] * len(cc)
+            if len(ccs) > 1 and len(ccs) <= len(component_colors) and not hasattr(self, "NODE_COLOR"):
+                sub_node_color = [component_colors[j]] * len(cc)
             if X is not None:
                 x_indices = None
+                sub_node_color = None
                 if self.node_feature_type == "integer":
                     x_indices = X[cc].squeeze()
                 elif self.node_feature_type == "one-hot":
@@ -245,32 +254,41 @@ class GraphDataset(Dataset):
                 if labels is None and hasattr(self, "NODE_CLS") and x_indices is not None:
                     labels = dict(zip(range(X[cc].shape[0]), map(self.NODE_CLS.get, x_indices)))
 
-                elif node_color is None and hasattr(self, "NODE_COLOR") and x_indices is not None:
-                    node_color = list(map(lambda i: self.NODE_COLOR.get(i, "skyblue"), x_indices))
+                if sub_node_color is None and hasattr(self, "NODE_COLOR") and x_indices is not None:
+                    sub_node_color = list(map(lambda i: self.NODE_COLOR.get(i, "skyblue"), x_indices))
+                elif node_color is not None:
+                    sub_node_color = [node_color[i] for i in cc]
 
             # For Debugging
             # labels = {node: str(node % N) for node in subG.nodes}
             # for n in fixed:
             #     node_color[n] = "red"
+            sub_labels = {k: v for k, v in labels.items() if k in subG.nodes()} if labels is not None else None
+            sub_edge_color = (
+                [color for color, edge in zip(edge_color, G.edges) if edge in subG.edges()]
+                if edge_color is not None
+                else None
+            )
 
             ax = fig.add_subplot(nccs, 1, j + 1)
             ax.set_axis_off()
-
-            nx.draw_networkx(
-                subG,
-                pos=subpos,
-                with_labels=with_labels,
-                # with_labels=True,
-                labels=labels,
-                node_color=node_color,
-                edge_color=[color for color, edge in zip(edge_color, G.edges) if edge in subG.edges]
-                if edge_color is not None
-                else None,
-                ax=ax,
-                node_size=500,
-                font_size=18,
-                **kwargs,
-            )
+            try:
+                nx.draw_networkx(
+                    subG,
+                    pos=subpos,
+                    with_labels=with_labels,
+                    # with_labels=True,
+                    labels=sub_labels,
+                    node_color=sub_node_color,
+                    edge_color=sub_edge_color,
+                    ax=ax,
+                    node_size=500,
+                    font_size=18,
+                    **kwargs,
+                )
+            except Exception as e:
+                print(e)
+                breakpoint()
         # if match_graphs:
         #     plt.savefig("graph.png")
         #     breakpoint()
