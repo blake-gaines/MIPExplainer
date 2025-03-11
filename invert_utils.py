@@ -53,9 +53,7 @@ def add_fc_constraint(model, X, W, b, name=None):
         ub=upper_bounds + b,
         name=f"{name}_t" if name else None,
     )
-    model.addConstr(
-        ts == X @ W.T + b, name=f"{name}_output_constraint" if name else None
-    )
+    model.addConstr(ts == X @ W.T + b, name=f"{name}_output_constraint" if name else None)
     return ts
 
 
@@ -68,30 +66,8 @@ def add_torch_maxpool2d_constraint(model, layer, X, name=None):
 
     N = X.shape[0]
     C = X.shape[-3]
-    Hout = floor(
-        (
-            (
-                X.shape[-2]
-                + 2 * layer.padding
-                - layer.dilation * (layer.kernel_size - 1)
-                - 1
-            )
-            / layer.stride
-        )
-        + 1
-    )
-    Wout = floor(
-        (
-            (
-                X.shape[-1]
-                + 2 * layer.padding
-                - layer.dilation * (layer.kernel_size - 1)
-                - 1
-            )
-            / layer.stride
-        )
-        + 1
-    )
+    Hout = floor(((X.shape[-2] + 2 * layer.padding - layer.dilation * (layer.kernel_size - 1) - 1) / layer.stride) + 1)
+    Wout = floor(((X.shape[-1] + 2 * layer.padding - layer.dilation * (layer.kernel_size - 1) - 1) / layer.stride) + 1)
 
     ts = model.addMVar(
         (
@@ -118,9 +94,7 @@ def add_torch_maxpool2d_constraint(model, layer, X, name=None):
                 model.addGenConstrMax(
                     ts[:, channel, i, j],
                     X[:, channel, a:b, c:d].reshape(-1).tolist(),
-                    name=f"{name}_max_constr_{channel}_{i}_{j}"
-                    if name
-                    else None,  # TODO: Broken for N>1
+                    name=f"{name}_max_constr_{channel}_{i}_{j}" if name else None,  # TODO: Broken for N>1
                 )
                 ts[:, channel, i, j].setAttr(
                     "lb",
@@ -143,27 +117,11 @@ def add_torch_conv2d_constraint(model, layer, X, name=None):
     N = X.shape[0]
     Cout = weight.shape[0]
     Hout = floor(
-        (
-            (
-                X.shape[-2]
-                + 2 * layer.padding[0]
-                - layer.dilation[0] * (layer.kernel_size[0] - 1)
-                - 1
-            )
-            / layer.stride[0]
-        )
+        ((X.shape[-2] + 2 * layer.padding[0] - layer.dilation[0] * (layer.kernel_size[0] - 1) - 1) / layer.stride[0])
         + 1
     )
     Wout = floor(
-        (
-            (
-                X.shape[-1]
-                + 2 * layer.padding[1]
-                - layer.dilation[1] * (layer.kernel_size[1] - 1)
-                - 1
-            )
-            / layer.stride[1]
-        )
+        ((X.shape[-1] + 2 * layer.padding[1] - layer.dilation[1] * (layer.kernel_size[1] - 1) - 1) / layer.stride[1])
         + 1
     )
 
@@ -184,8 +142,7 @@ def add_torch_conv2d_constraint(model, layer, X, name=None):
     X_array = X  # np.array(X.tolist())
 
     assert (
-        weight[0][np.newaxis, :].shape
-        == X_array[:, :, 0 : 0 + weight[0].shape[-2], 0 : 0 + weight[0].shape[-1]].shape
+        weight[0][np.newaxis, :].shape == X_array[:, :, 0 : 0 + weight[0].shape[-2], 0 : 0 + weight[0].shape[-1]].shape
     ), (
         weight[0][np.newaxis, :].shape,
         X_array[:, :, 0 : 0 + weight[0].shape[-2], 0 : 0 + weight[0].shape[-1]].shape,
@@ -210,21 +167,15 @@ def add_torch_conv2d_constraint(model, layer, X, name=None):
                         ]
                     ).sum()  # TODO: Broken for N>1
                     + bias,
-                    name=f"{name}_output_constraint_{kernel_index}_{i}_{j}"
-                    if name
-                    else None,
+                    name=f"{name}_output_constraint_{kernel_index}_{i}_{j}" if name else None,
                 )
                 ts[:, kernel_index, i, j].setAttr(
                     "lb",
                     (
                         kernel.clip(min=0)[np.newaxis, :]
-                        * X_array[
-                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
-                        ].getAttr("lb")
+                        * X_array[:, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]].getAttr("lb")
                         + kernel.clip(max=0)[np.newaxis, :]
-                        * X_array[
-                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
-                        ].getAttr("ub")
+                        * X_array[:, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]].getAttr("ub")
                     )
                     .reshape((N, -1))
                     .sum(axis=1)
@@ -235,13 +186,9 @@ def add_torch_conv2d_constraint(model, layer, X, name=None):
                     "ub",
                     (
                         kernel.clip(min=0)[np.newaxis, :]
-                        * X_array[
-                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
-                        ].getAttr("ub")
+                        * X_array[:, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]].getAttr("ub")
                         + kernel.clip(max=0)[np.newaxis, :]
-                        * X_array[
-                            :, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]
-                        ].getAttr("lb")
+                        * X_array[:, :, i : i + kernel.shape[-2], j : j + kernel.shape[-1]].getAttr("lb")
                     )
                     .reshape((N, -1))
                     .sum(axis=1)
@@ -260,9 +207,7 @@ def add_gcn_constraint(model, A, X, W, b, name=None):  # Unnormalized Adjacency 
         ub=upper_bounds + b,
         name=f"{name}_t" if name else None,
     )
-    model.addConstr(
-        ts == A @ X @ W + b, name=f"{name}_output_constraint" if name else None
-    )
+    model.addConstr(ts == A @ X @ W + b, name=f"{name}_output_constraint" if name else None)
     return ts
 
 
@@ -320,19 +265,12 @@ def order_onehot_features(model, A, X):
                     name=f"both_connected_{parent}_{prev_child}_{next_child}",
                 )
                 model.addConstr(
-                    both_connected
-                    == gp.and_(A[parent, prev_child], A[parent, next_child]),
+                    both_connected == gp.and_(A[parent, prev_child], A[parent, next_child]),
                     name=f"both_connected_constr_{parent}_{prev_child}_{next_child}",
                 )
                 model.addConstr(
-                    gp.quicksum(
-                        (2 ** (F - f - 1)) * X[prev_child, f] * both_connected
-                        for f in range(F)
-                    )
-                    <= gp.quicksum(
-                        (2 ** (F - f - 1)) * X[next_child, f] * A[parent, next_child]
-                        for f in range(F)
-                    ),
+                    gp.quicksum((2 ** (F - f - 1)) * X[prev_child, f] * both_connected for f in range(F))
+                    <= gp.quicksum((2 ** (F - f - 1)) * X[next_child, f] * A[parent, next_child] for f in range(F)),
                     name=f"one_hot_order_{parent}_{prev_child}_{next_child}",
                 )
 
@@ -343,8 +281,8 @@ def lex_adj_matrix(model, A):
     model.update()
     powers = 2 ** np.arange(A.shape[0])
     for i in range(A.shape[0] - 1):
-        print(f"lex_{i}_{i+1}: {A[i] @ powers} >= {A[i + 1] @ powers}")
-        model.addConstr(A[i] @ powers >= A[i + 1] @ powers, name=f"lex_{i}_{i+1}")
+        print(f"lex_{i}_{i + 1}: {A[i] @ powers} >= {A[i + 1] @ powers}")
+        model.addConstr(A[i] @ powers >= A[i + 1] @ powers, name=f"lex_{i}_{i + 1}")
 
 
 def s1_constraint(model, A):
@@ -375,14 +313,8 @@ def s3_constraint(model, A):
     N = A.shape[0]
     for v in range(1, N - 1):
         model.addConstr(
-            gp.quicksum(
-                (2 ** (N - u - 1)) * A[u, v] for u in range(N) if u != v and u != v + 1
-            )
-            >= gp.quicksum(
-                (2 ** (N - u - 1)) * A[u, v + 1]
-                for u in range(N)
-                if u != v and u != v + 1
-            ),
+            gp.quicksum((2 ** (N - u - 1)) * A[u, v] for u in range(N) if u != v and u != v + 1)
+            >= gp.quicksum((2 ** (N - u - 1)) * A[u, v + 1] for u in range(N) if u != v and u != v + 1),
             name=f"s3_{v}",
         )
 
@@ -396,12 +328,8 @@ def get_one_hot_features(model, num_nodes, num_node_features, name="X"):
 
 def get_node_degree_features(model, num_nodes, num_node_features, A, name="X"):
     # Node degree node features
-    X = model.addMVar(
-        (num_nodes, num_node_features), lb=0, ub=num_nodes, name=name, vtype=GRB.INTEGER
-    )
-    model.addConstr(
-        X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees"
-    )
+    X = model.addMVar((num_nodes, num_node_features), lb=0, ub=num_nodes, name=name, vtype=GRB.INTEGER)
+    model.addConstr(X == gp.quicksum(A)[:, np.newaxis], name="features_are_node_degrees")
     return X
 
 
@@ -510,27 +438,19 @@ def add_sage_constraint(
     # Returns the output of a GraphSAGE convolutional layer, see the implementation in PyTorch-Geometric for details about the parameters
     model.update()
     if project:
-        X = add_fc_constraint(
-            model, X, lin_weight, lin_bias, name=name + "projection_fc"
-        )
+        X = add_fc_constraint(model, X, lin_weight, lin_bias, name=name + "projection_fc")
         X = add_relu_constraint(model, X, name=name + "projection_relu")
 
     # Create decision variables to store the aggregated features of each node's neighborhood
-    aggregated_features = model.addMVar(
-        X.shape, lb=-float("inf"), ub=float("inf"), name=f"{name}_aggregated_features"
-    )
+    aggregated_features = model.addMVar(X.shape, lb=-float("inf"), ub=float("inf"), name=f"{name}_aggregated_features")
 
     model.update()
 
     if aggr == "mean":
         # aggregated_features[i][j] is the sum of all node i's neighbors' feature j divided by the number of node i's neighbors
         # Ensure gp.quicksum(A) does not have any zeros
-        aggregated_features.setAttr(
-            "lb", (A.getAttr("ub") @ X.getAttr("lb").clip(max=0)) / X.shape[0]
-        )
-        aggregated_features.setAttr(
-            "ub", (A.getAttr("ub") @ X.getAttr("ub").clip(min=0)) / X.shape[0]
-        )
+        aggregated_features.setAttr("lb", (A.getAttr("ub") @ X.getAttr("lb").clip(max=0)) / X.shape[0])
+        aggregated_features.setAttr("ub", (A.getAttr("ub") @ X.getAttr("ub").clip(min=0)) / X.shape[0])
         model.addConstr(
             aggregated_features * gp.quicksum(A)[:, np.newaxis] == A @ X,
             name=f"{name}_averages_constraint" if name else None,
@@ -548,28 +468,16 @@ def add_sage_constraint(
 
     # The bounds for the output of the layer will be the sums of the bounds of its addends
     first_lower_bounds, first_upper_bounds = get_matmul_bounds(X, lin_r_weight.T)
-    second_lower_bounds, second_upper_bounds = get_matmul_bounds(
-        aggregated_features, lin_l_weight.T
-    )
+    second_lower_bounds, second_upper_bounds = get_matmul_bounds(aggregated_features, lin_l_weight.T)
 
     # If node features are categorical, we can tighten the bounds on the output.
-    if (
-        name == "Conv_0"
-        and aggr == "sum"
-        and model.getConstrByName("categorical_features[0]") is not None
-    ):
-        print(
-            "Tightening bounds for first term in Conv_0 (mean) for categorical features"
-        )
+    if name == "Conv_0" and aggr == "sum" and model.getConstrByName("categorical_features[0]") is not None:
+        print("Tightening bounds for first term in Conv_0 (mean) for categorical features")
         first_lower_bounds = np.min(lin_r_weight.T, 0, keepdims=True)
         first_upper_bounds = np.max(lin_r_weight.T, 0, keepdims=True)
 
-    ts_lower_bounds = (
-        first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0)
-    )
-    ts_upper_bounds = (
-        first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0)
-    )
+    ts_lower_bounds = first_lower_bounds + second_lower_bounds + np.expand_dims(lin_l_bias, 0)
+    ts_upper_bounds = first_upper_bounds + second_upper_bounds + np.expand_dims(lin_l_bias, 0)
     ts = model.addMVar(
         (X.shape[0], lin_r_weight.shape[0]),
         lb=ts_lower_bounds,
@@ -596,10 +504,7 @@ def add_sage_constraint(
 
     # Constrain outputs to correct values
     model.addConstr(
-        ts
-        == (X @ lin_r_weight.T)
-        + (aggregated_features @ lin_l_weight.T)
-        + np.expand_dims(lin_l_bias, 0),
+        ts == (X @ lin_r_weight.T) + (aggregated_features @ lin_l_weight.T) + np.expand_dims(lin_l_bias, 0),
         name=f"{name}_output_constraint" if name else None,
     )
     return ts
@@ -640,12 +545,8 @@ def global_mean_pool(model, X, name=None, batch=None, **kwargs):
             averages[i] == gp.quicksum(graph_vars) / len(graph_vars),
             name=f"{name}_constraint_{i}" if name else None,
         )
-        averages[i].setAttr(
-            "lb", sum(v.getAttr("lb") for v in graph_vars) / len(graph_vars)
-        )
-        averages[i].setAttr(
-            "ub", sum(v.getAttr("ub") for v in graph_vars) / len(graph_vars)
-        )
+        averages[i].setAttr("lb", sum(v.getAttr("lb") for v in graph_vars) / len(graph_vars))
+        averages[i].setAttr("ub", sum(v.getAttr("ub") for v in graph_vars) / len(graph_vars))
     return averages
 
 
@@ -714,9 +615,7 @@ def get_cosine_similarity(model, var, vec, name="cosine_similarity"):
         gp.quicksum(var * vec) == var_magnitude * vec_magnitude * cosine_similarity,
         name=f"{name}_constr",
     )  # u^Tv=|u||v|cos_sim(u,v)
-    return cosine_similarity, lambda newvec: np.dot(newvec, vec) / (
-        norm(newvec) * norm(vec)
-    )
+    return cosine_similarity, lambda newvec: np.dot(newvec, vec) / (norm(newvec) * norm(vec))
 
 
 def get_l2_distance(model, var, vec, name="l2_distance"):
@@ -757,9 +656,7 @@ def get_max(model, var_list, name=None):
     max_var = model.addVar(
         lb=max(v.getAttr("lb") for v in var_list),
         ub=max(v.getAttr("ub") for v in var_list),
-        vtype=var_list[0].vtype
-        if all(v.vtype == var_list[0].vtype for v in var_list)
-        else GRB.CONTINUOUS,
+        vtype=var_list[0].vtype if all(v.vtype == var_list[0].vtype for v in var_list) else GRB.CONTINUOUS,
         name=name,
     )
     model.addGenConstrMax(max_var, var_list, name=f"{name}_constr")
@@ -773,9 +670,7 @@ def get_min(model, var_list, name=None):
     min_var = model.addVar(
         lb=min(v.getAttr("lb") for v in var_list),
         ub=min(v.getAttr("ub") for v in var_list),
-        vtype=var_list[0].vtype
-        if all(v.vtype == var_list[0].vtype for v in var_list)
-        else GRB.CONTINUOUS,
+        vtype=var_list[0].vtype if all(v.vtype == var_list[0].vtype for v in var_list) else GRB.CONTINUOUS,
         name=name,
     )
     model.addGenConstrMin(min_var, var_list, name=f"{name}_constr")
@@ -835,34 +730,22 @@ def canonicalize_graph(data):
     # Set the first node to be the one with the highest lexicographic ordering
     F = data.x.shape[1]
     first_node = np.argmax(
-        [
-            sum(2 ** (F - f - 1) * data.x[i, f] for f in range(F)).item()
-            for i in range(G.number_of_nodes())
-        ]
+        [sum(2 ** (F - f - 1) * data.x[i, f] for f in range(F)).item() for i in range(G.number_of_nodes())]
     )
     unindexed_nodes.remove(first_node)
     s = 1
     label_mapping = {first_node: 0}
     while s < len(G.nodes):
         indexed_neighbors = {
-            node: {
-                label_mapping[neighbor]
-                for neighbor in G.neighbors(node)
-                if neighbor in label_mapping
-            }
+            node: {label_mapping[neighbor] for neighbor in G.neighbors(node) if neighbor in label_mapping}
             for node in unindexed_nodes
         }
         # print("Indexed Neighbors:", indexed_neighbors)
         ranks = get_ranks(indexed_neighbors)
         # print("Ranks:", ranks)
-        temporary_indices = {
-            v: (label_mapping[v] if v in label_mapping else ranks[v] + s)
-            for v in G.nodes
-        }
+        temporary_indices = {v: (label_mapping[v] if v in label_mapping else ranks[v] + s) for v in G.nodes}
         # print("Temporary Indices:", temporary_indices)
-        temp_neighbor_set = {
-            v: [temporary_indices[u] for u in G.neighbors(v)] for v in unindexed_nodes
-        }
+        temp_neighbor_set = {v: [temporary_indices[u] for u in G.neighbors(v)] for v in unindexed_nodes}
         # print("Temporary Neighbor Set:", temp_neighbor_set)
         vs = LO(temp_neighbor_set)[0]
         # print("LO:", LO(temp_neighbor_set))
