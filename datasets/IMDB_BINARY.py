@@ -8,8 +8,8 @@ class IMDB_Binary_dataset(GraphDataset):
     node_feature_type = "constant"
 
     GRAPH_CLS = {
-        0: "Action",
-        1: "Romance",
+        0: "0",
+        1: "1",
     }
 
     def __init__(self, *args, **kwargs):

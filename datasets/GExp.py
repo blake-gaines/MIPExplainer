@@ -1,5 +1,3 @@
-import pickle
-import os
 from .dataset import GraphDataset
 from .d4exp_datasets.NCI1_dataset import NCI1
 from .d4exp_datasets.ba3motif_dataset import BA3Motif
@@ -11,20 +9,11 @@ import torch
 
 class NCI1_dataset(GraphDataset):
     root = "data/GExp-dataset/NCI1"
+    node_feature_type = "one-hot"
+
     GRAPH_CLS = {
-        0: "Non-Active",
-        1: "Active",
-    }
-    NODE_CLS = {0: "C", 1: "N", 2: "O", 3: "F", 4: "I", 5: "Cl", 6: "Br", 7: "S"}
-    NODE_COLOR = {
-        0: "lightgray",
-        1: "deepskyblue",
-        2: "red",
-        3: "cyan",
-        4: "magenta",
-        5: "springgreen",
-        6: "chocolate",
-        7: "gold",
+        0: "0",
+        1: "1",
     }
 
     def get_data(self):
@@ -38,9 +27,6 @@ class NCI1_dataset(GraphDataset):
         for d in data:
             d.x = d.x[:, feature_include_indices]
         data = [d for d in data if not (d.x == 0).all(axis=1).any()]
-        print("NCI1: Shortened Dataset Length:", len(data))
-        # self.NODE_CLS = dict(enumerate(self.atoms))
-        print("WARNING: I MADE UP THE NODE FEATURES FOR THIS DATASET WE HAVE TO FIGURE OUT THE REAL ONES")
         return data
 
 
